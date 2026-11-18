@@ -1,0 +1,11 @@
+# Each line: <path> <GitHub handles>. The listed owners are requested for review automatically.
+# TODO: replace the placeholder handles with real GitHub usernames before enabling "Require review from Code Owners".
+
+/.github/                        @mentor-placeholder
+/docs/                           @mentor-placeholder
+/CONTRIBUTING.md                 @mentor-placeholder
+
+/customer-support-agent/         @csa-mentor @csa-member-1 @csa-member-2
+/enterprise-research-agent/      @era-mentor @era-member-1 @era-member-2 @era-member-3 @era-member-4
+/retail-shelf-monitoring/        @rsm-mentor @rsm-member-1 @rsm-member-2
+/sim2real-segmentation/          @s2r-mentor @s2r-member-1 @s2r-member-2 @s2r-member-3

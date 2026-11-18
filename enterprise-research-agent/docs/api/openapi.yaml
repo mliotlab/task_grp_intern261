@@ -1,0 +1,831 @@
+openapi: 3.1.0
+info:
+  title: Enterprise Research Agent API
+  description: Upload internal documents, run research jobs, read cited reports.
+  version: 0.1.0
+paths:
+  /health:
+    get:
+      tags:
+      - ops
+      summary: Health
+      operationId: health_health_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+                title: Response Health Health Get
+  /v1/auth/register:
+    post:
+      tags:
+      - auth
+      summary: Register
+      description: 'TODO(FR-01): reject duplicate emails (409), store `hash_password(body.password)`.'
+      operationId: register_v1_auth_register_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/auth/login:
+    post:
+      tags:
+      - auth
+      summary: Login
+      description: 'TODO(FR-01): verify_password → create_access_token(str(user.id)).
+
+
+        Return the same 401 for "unknown email" and "wrong password".'
+      operationId: login_v1_auth_login_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/auth/me:
+    get:
+      tags:
+      - auth
+      summary: Me
+      operationId: me_v1_auth_me_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserOut'
+      security:
+      - HTTPBearer: []
+  /v1/collections:
+    get:
+      tags:
+      - collections
+      summary: List Collections
+      description: 'TODO(FR-07): only the caller''s collections.'
+      operationId: list_collections_v1_collections_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/CollectionOut'
+                type: array
+                title: Response List Collections V1 Collections Get
+      security:
+      - HTTPBearer: []
+    post:
+      tags:
+      - collections
+      summary: Create Collection
+      operationId: create_collection_v1_collections_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CollectionCreate'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CollectionOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /v1/collections/{collection_id}:
+    delete:
+      tags:
+      - collections
+      summary: Delete Collection
+      description: 'TODO(FR-07): return 404 (not 403) for collections owned by someone
+        else.'
+      operationId: delete_collection_v1_collections__collection_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: collection_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Collection Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/collections/{collection_id}/documents:
+    post:
+      tags:
+      - documents
+      summary: Upload Document
+      description: "TODO(FR-02, NFR-04, NFR-05):\n1. validate extension + content\
+        \ type and size ≤ MAX_UPLOAD_MB (413 / 415 otherwise);\n2. compute sha256\
+        \ – if the same file already exists in the collection, return it (idempotent);\n\
+        3. save to storage, insert Document(status=queued),\n   enqueue `workers.ingestion.tasks.process_document`."
+      operationId: upload_document_v1_collections__collection_id__documents_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: collection_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Collection Id
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Body_upload_document_v1_collections__collection_id__documents_post'
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocumentOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - documents
+      summary: List Documents
+      operationId: list_documents_v1_collections__collection_id__documents_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: collection_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Collection Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DocumentOut'
+                title: Response List Documents V1 Collections  Collection Id  Documents
+                  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/documents/{document_id}:
+    get:
+      tags:
+      - documents
+      summary: Get Document
+      operationId: get_document_v1_documents__document_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: document_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Document Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocumentOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/chunks/{chunk_id}:
+    get:
+      tags:
+      - documents
+      summary: Get Chunk
+      description: Source passage behind a citation – the UI opens this when a citation
+        is clicked (FR-06).
+      operationId: get_chunk_v1_chunks__chunk_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: chunk_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Chunk Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChunkOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/research:
+    post:
+      tags:
+      - research
+      summary: Create Research
+      description: 'TODO(FR-03): check collection ownership, insert ResearchJob, enqueue
+        run_research(job_id).'
+      operationId: create_research_v1_research_post
+      security:
+      - HTTPBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResearchCreate'
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResearchAccepted'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - research
+      summary: List Research
+      operationId: list_research_v1_research_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: q
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Search in questions (FR-08)
+          title: Q
+        description: Search in questions (FR-08)
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ResearchOut'
+                title: Response List Research V1 Research Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/research/{job_id}:
+    get:
+      tags:
+      - research
+      summary: Get Research
+      description: 'TODO(FR-04): status + completed steps; the UI polls this (or use
+        SSE).'
+      operationId: get_research_v1_research__job_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Job Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResearchOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/research/{job_id}/cancel:
+    post:
+      tags:
+      - research
+      summary: Cancel Research
+      operationId: cancel_research_v1_research__job_id__cancel_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Job Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResearchOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/research/{job_id}/retry:
+    post:
+      tags:
+      - research
+      summary: Retry Research
+      operationId: retry_research_v1_research__job_id__retry_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Job Id
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResearchAccepted'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+components:
+  schemas:
+    Body_upload_document_v1_collections__collection_id__documents_post:
+      properties:
+        file:
+          type: string
+          contentMediaType: application/octet-stream
+          title: File
+      type: object
+      required:
+      - file
+      title: Body_upload_document_v1_collections__collection_id__documents_post
+    ChunkOut:
+      properties:
+        id:
+          type: string
+          format: uuid
+          title: Id
+        document_id:
+          type: string
+          format: uuid
+          title: Document Id
+        filename:
+          type: string
+          title: Filename
+        page:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Page
+        section:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Section
+        text:
+          type: string
+          title: Text
+      type: object
+      required:
+      - id
+      - document_id
+      - filename
+      - page
+      - section
+      - text
+      title: ChunkOut
+    CitationOut:
+      properties:
+        marker:
+          type: string
+          title: Marker
+          examples:
+          - '[1]'
+        document_id:
+          type: string
+          format: uuid
+          title: Document Id
+        chunk_id:
+          type: string
+          format: uuid
+          title: Chunk Id
+        filename:
+          type: string
+          title: Filename
+        page:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Page
+        section:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Section
+      type: object
+      required:
+      - marker
+      - document_id
+      - chunk_id
+      - filename
+      title: CitationOut
+    CollectionCreate:
+      properties:
+        name:
+          type: string
+          maxLength: 200
+          minLength: 1
+          title: Name
+        description:
+          anyOf:
+          - type: string
+            maxLength: 1000
+          - type: 'null'
+          title: Description
+      type: object
+      required:
+      - name
+      title: CollectionCreate
+    CollectionOut:
+      properties:
+        id:
+          type: string
+          format: uuid
+          title: Id
+        name:
+          type: string
+          title: Name
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        document_count:
+          type: integer
+          title: Document Count
+          default: 0
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+      type: object
+      required:
+      - id
+      - name
+      - description
+      - created_at
+      title: CollectionOut
+    DocumentOut:
+      properties:
+        id:
+          type: string
+          format: uuid
+          title: Id
+        collection_id:
+          type: string
+          format: uuid
+          title: Collection Id
+        filename:
+          type: string
+          title: Filename
+        size_bytes:
+          type: integer
+          title: Size Bytes
+        status:
+          $ref: '#/components/schemas/DocumentStatus'
+        error:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Error
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+      type: object
+      required:
+      - id
+      - collection_id
+      - filename
+      - size_bytes
+      - status
+      - created_at
+      title: DocumentOut
+    DocumentStatus:
+      type: string
+      enum:
+      - queued
+      - processing
+      - ready
+      - failed
+      title: DocumentStatus
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    JobStatus:
+      type: string
+      enum:
+      - queued
+      - running
+      - succeeded
+      - failed
+      - cancelled
+      title: JobStatus
+    LoginRequest:
+      properties:
+        email:
+          type: string
+          format: email
+          title: Email
+        password:
+          type: string
+          title: Password
+      type: object
+      required:
+      - email
+      - password
+      title: LoginRequest
+    RegisterRequest:
+      properties:
+        email:
+          type: string
+          format: email
+          title: Email
+        password:
+          type: string
+          maxLength: 128
+          minLength: 8
+          title: Password
+      type: object
+      required:
+      - email
+      - password
+      title: RegisterRequest
+    ResearchAccepted:
+      properties:
+        job_id:
+          type: string
+          format: uuid
+          title: Job Id
+        status:
+          $ref: '#/components/schemas/JobStatus'
+          default: queued
+      type: object
+      required:
+      - job_id
+      title: ResearchAccepted
+    ResearchCreate:
+      properties:
+        question:
+          type: string
+          maxLength: 2000
+          minLength: 10
+          title: Question
+        collection_id:
+          type: string
+          format: uuid
+          title: Collection Id
+        web_search:
+          type: boolean
+          title: Web Search
+          description: FR-11 (Could)
+          default: false
+      type: object
+      required:
+      - question
+      - collection_id
+      title: ResearchCreate
+    ResearchOut:
+      properties:
+        job_id:
+          type: string
+          format: uuid
+          title: Job Id
+        question:
+          type: string
+          title: Question
+        status:
+          $ref: '#/components/schemas/JobStatus'
+        steps:
+          items:
+            $ref: '#/components/schemas/StepOut'
+          type: array
+          title: Steps
+          default: []
+        report_markdown:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Report Markdown
+        citations:
+          items:
+            $ref: '#/components/schemas/CitationOut'
+          type: array
+          title: Citations
+          default: []
+        error:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Error
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        updated_at:
+          type: string
+          format: date-time
+          title: Updated At
+      type: object
+      required:
+      - job_id
+      - question
+      - status
+      - created_at
+      - updated_at
+      title: ResearchOut
+    StepOut:
+      properties:
+        name:
+          type: string
+          title: Name
+        status:
+          type: string
+          title: Status
+        duration_ms:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Duration Ms
+      type: object
+      required:
+      - name
+      - status
+      title: StepOut
+    TokenResponse:
+      properties:
+        access_token:
+          type: string
+          title: Access Token
+        token_type:
+          type: string
+          title: Token Type
+          default: bearer
+        expires_in:
+          type: integer
+          title: Expires In
+          description: Seconds until the token expires
+      type: object
+      required:
+      - access_token
+      - expires_in
+      title: TokenResponse
+    UserOut:
+      properties:
+        id:
+          type: string
+          format: uuid
+          title: Id
+        email:
+          type: string
+          format: email
+          title: Email
+      type: object
+      required:
+      - id
+      - email
+      title: UserOut
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+        input:
+          title: Input
+        ctx:
+          type: object
+          title: Context
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError
+  securitySchemes:
+    HTTPBearer:
+      type: http
+      scheme: bearer

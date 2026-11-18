@@ -1,0 +1,6 @@
+{
+  "_comment": "Human-reviewed tool descriptions. JSON parameter schemas are generated from the Pydantic models in support_agent/tools/.",
+  "get_order_status": "Look up the status of an order. Requires the order id (format SX-000123) and the email used for the order.",
+  "create_ticket": "Create a support ticket for issues that need follow-up by the support team and return the ticket id.",
+  "handoff_to_human": "Transfer the conversation to a human agent with a short summary of the conversation."
+}

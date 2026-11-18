@@ -1,0 +1,7 @@
+# Ultralytics dataset file, generated layout of prepare_subset.py
+path: data/sku110k_subset
+train: images/train
+val: images/val
+test: images/test
+names:
+  0: product

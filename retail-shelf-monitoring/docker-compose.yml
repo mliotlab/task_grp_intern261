@@ -1,0 +1,25 @@
+name: retail-shelf-monitoring
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: services/api/Dockerfile
+      args:
+        WITH_ML: ${WITH_ML:-1}
+    env_file: .env
+    ports: ["8000:8000"]
+    volumes:
+      - ./models:/app/models:ro          # model registry (weights downloaded, not committed)
+      - shelf-data:/app/var              # SQLite + original/annotated images
+
+  dashboard:
+    build: { context: ., dockerfile: services/dashboard/Dockerfile }
+    environment:
+      API_URL: http://api:8000
+    ports: ["8501:8501"]
+    depends_on:
+      api: { condition: service_healthy }
+
+volumes:
+  shelf-data:

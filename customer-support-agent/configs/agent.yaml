@@ -1,0 +1,19 @@
+# Agent behaviour that is NOT secret lives here and is versioned with the code (NFR-08).
+# Secrets and environment-specific values live in .env.
+llm:
+  temperature: 0.1
+  max_output_tokens: 512
+  # USD per 1M tokens, used to estimate cost per turn (NFR-07). Update with the real price list.
+  price_per_million_input_tokens: 0.15
+  price_per_million_output_tokens: 0.60
+
+agent:
+  max_history_turns: 6        # FR-07: turns of history kept in the context window
+  max_tool_steps: 5           # hard stop for the tool-calling loop
+  handoff_after_failed_turns: 2  # FR-06: hand off if the agent cannot answer after 2 turns
+
+retrieval:
+  top_k: 4
+  chunk_size: 800             # characters
+  chunk_overlap: 120
+  min_score: 0.3              # below this the agent must say "I could not find this" (FR-03)

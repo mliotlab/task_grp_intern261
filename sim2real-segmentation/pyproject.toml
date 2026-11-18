@@ -1,0 +1,17 @@
+# Lightweight helper tooling only. DAFormer itself runs in the mentor-provided environment
+# (see docs/ENVIRONMENT.md); nothing here depends on PyTorch.
+[project]
+name = "s2r-tools"
+version = "0.1.0"
+description = "Helper tools for the Sim2Real (GTA5 → Cityscapes) mini research project."
+requires-python = ">=3.8"
+dependencies = ["numpy", "pillow"]
+
+[tool.ruff]
+extend = "../ruff.toml"
+target-version = "py38"   # DAFormer environment runs Python 3.8
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra"

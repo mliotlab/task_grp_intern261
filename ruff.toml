@@ -1,0 +1,30 @@
+# Shared ruff configuration for every Python project in this monorepo.
+# Each project extends it from its pyproject.toml:  [tool.ruff] extend = "../ruff.toml"
+target-version = "py311"
+line-length = 100
+
+[lint]
+select = [
+  "E", "W",   # pycodestyle
+  "F",        # pyflakes
+  "I",        # isort
+  "B",        # flake8-bugbear
+  "UP",       # pyupgrade
+  "SIM",      # flake8-simplify
+  "N",        # pep8-naming
+  "S",        # flake8-bandit (security)
+  "RUF",      # ruff-specific
+]
+ignore = [
+  "S101",     # assert is fine in tests
+  "B008",     # FastAPI Depends() in default args
+  "RUF001", "RUF002", "RUF003",  # allow Vietnamese / unicode text in strings & comments
+]
+
+[lint.per-file-ignores]
+"**/tests/**" = ["S", "N802"]
+"**/scripts/**" = ["S311"]
+
+[format]
+quote-style = "double"
+docstring-code-format = true

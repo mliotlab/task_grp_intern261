@@ -1,0 +1,26 @@
+name: S2R CI
+
+# The research project runs DAFormer in a mentor-provided GPU environment, so CI only checks
+# that helper scripts are lint-clean and that their pure-Python parts still work.
+on:
+  pull_request:
+    paths: ["sim2real-segmentation/**", ".github/workflows/s2r-ci.yml", "ruff.toml"]
+  push:
+    branches: [main]
+    paths: ["sim2real-segmentation/**", ".github/workflows/s2r-ci.yml", "ruff.toml"]
+  workflow_dispatch:
+
+defaults:
+  run:
+    working-directory: sim2real-segmentation
+
+jobs:
+  lint-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install ruff pytest numpy pillow
+      - run: ruff check . && ruff format --check .
+      - run: pytest -q
