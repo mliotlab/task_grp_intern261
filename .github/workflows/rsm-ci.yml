@@ -21,7 +21,7 @@ jobs:
     name: Lint & unit tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
@@ -46,7 +46,7 @@ jobs:
     needs: lint-test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: cp .env.example .env
       - name: Build (without PyTorch/Ultralytics to keep CI fast)
         run: docker compose build
