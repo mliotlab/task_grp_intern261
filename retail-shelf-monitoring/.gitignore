@@ -1,0 +1,51 @@
+# Local environments and secrets
+.env
+.env.*
+!.env.example
+.venv/
+venv/
+
+# Python caches and test artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Runtime storage
+var/
+*.db
+*.sqlite
+*.sqlite3
+
+# Model weights, archives, and training outputs
+*.pt
+*.pth
+*.onnx
+*.engine
+*.ckpt
+*.safetensors
+*.tar.gz
+*.zip
+runs/
+mlruns/
+wandb/
+
+# Datasets: never commit raw data, subset images, or YOLO label files.
+# Deterministic subset manifests and metadata may be tracked if generated.
+data/*
+!data/README.md
+!data/sku110k_subset/
+data/sku110k_subset/*
+!data/sku110k_subset/MANIFEST.csv
+!data/sku110k_subset/manifests/
+!data/sku110k_subset/dataset_metadata.json
+data/raw/

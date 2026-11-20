@@ -6,10 +6,30 @@ python training/scripts/prepare_subset.py --config training/configs/data_subset.
 from __future__ import annotations
 
 import argparse
+import csv
+import hashlib
+import json
 import random
+import shutil
+from collections import defaultdict
 from pathlib import Path
+from typing import Any, NamedTuple
 
 import yaml
+
+MANIFEST_FIELDS = ["image", "split", "n_boxes", "image_width", "image_height"]
+SPLIT_ORDER = ("train", "val", "test")
+
+
+class BoxRecord(NamedTuple):
+    """Single ground-truth bounding box in absolute pixel coordinates."""
+
+    x1: float
+    y1: float
+    x2: float
+    y2: float
+    img_w: int
+    img_h: int
 
 
 def sample_split(image_ids: list[str], n: int, seed: int) -> list[str]:
@@ -27,20 +47,219 @@ def to_yolo_line(x1: float, y1: float, x2: float, y2: float, img_w: int, img_h: 
     return f"0 {cx:.6f} {cy:.6f} {w:.6f} {h:.6f}"
 
 
+def find_annotation_csv(raw_dir: Path, split: str) -> Path:
+    """Locate `annotations_<split>.csv` inside `raw_dir`."""
+    candidates = [
+        raw_dir / "annotations" / f"annotations_{split}.csv",
+        raw_dir / f"annotations_{split}.csv",
+    ]
+    for path in candidates:
+        if path.is_file():
+            return path
+    raise FileNotFoundError(
+        f"Missing annotation CSV for split '{split}'. Checked: "
+        + ", ".join(str(p) for p in candidates)
+    )
+
+
+def find_image_path(raw_dir: Path, split: str, image_name: str) -> Path:
+    """Locate an image file under `raw_dir/images/`."""
+    candidates = [
+        raw_dir / "images" / image_name,
+        raw_dir / "images" / split / image_name,
+    ]
+    for path in candidates:
+        if path.is_file():
+            return path
+    raise FileNotFoundError(
+        f"Image '{image_name}' not found for split '{split}'. Checked: "
+        + ", ".join(str(p) for p in candidates)
+    )
+
+
+def _clamp(value: float, low: float, high: float) -> float:
+    return max(low, min(high, value))
+
+
+def read_annotations(csv_path: Path) -> tuple[dict[str, list[BoxRecord]], int]:
+    """Parse SKU-110K CSV rows into `{image_name: [BoxRecord, ...]}` and skipped row count."""
+    by_image: dict[str, list[BoxRecord]] = defaultdict(list)
+    skipped = 0
+
+    with csv_path.open("r", encoding="utf-8", newline="") as f:
+        reader = csv.reader(f)
+        for row_idx, row in enumerate(reader):
+            if not row:
+                continue
+            if len(row) < 8:
+                skipped += 1
+                continue
+
+            image_name = row[0].strip()
+            try:
+                raw_x1 = float(row[1])
+                raw_y1 = float(row[2])
+                raw_x2 = float(row[3])
+                raw_y2 = float(row[4])
+                img_w = int(float(row[6]))
+                img_h = int(float(row[7]))
+            except ValueError:
+                # Standard SKU-110K CSVs are headerless; skip a header row if present.
+                if row_idx == 0:
+                    continue
+                skipped += 1
+                continue
+
+            if not image_name or img_w <= 0 or img_h <= 0:
+                skipped += 1
+                continue
+
+            x1 = _clamp(raw_x1, 0.0, float(img_w))
+            y1 = _clamp(raw_y1, 0.0, float(img_h))
+            x2 = _clamp(raw_x2, 0.0, float(img_w))
+            y2 = _clamp(raw_y2, 0.0, float(img_h))
+            if x2 <= x1 or y2 <= y1:
+                skipped += 1
+                continue
+
+            by_image[image_name].append(
+                BoxRecord(x1=x1, y1=y1, x2=x2, y2=y2, img_w=img_w, img_h=img_h)
+            )
+
+    return dict(by_image), skipped
+
+
+def _write_manifest(path: Path, rows: list[dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=MANIFEST_FIELDS, lineterminator="\n")
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def _sha256_file(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def build_subset(
+    cfg: dict[str, Any],
+    raw_dir: Path | None = None,
+    out_dir: Path | None = None,
+) -> dict[str, Any]:
+    """Generate deterministic train/val/test YOLO subset, labels, manifests, and metadata."""
+    resolved_raw = raw_dir if raw_dir is not None else Path(cfg["raw_dir"])
+    resolved_out = out_dir if out_dir is not None else Path(cfg["out_dir"])
+    seed = int(cfg["seed"])
+    dataset_version = str(cfg["dataset_version"])
+    splits_cfg: dict[str, int] = cfg["splits"]
+
+    if not resolved_raw.is_dir():
+        raise FileNotFoundError(
+            f"Raw dataset directory does not exist: '{resolved_raw}'. "
+            "See data/README.md for download and extraction instructions."
+        )
+
+    ordered_splits = [s for s in SPLIT_ORDER if s in splits_cfg] + [
+        s for s in splits_cfg if s not in SPLIT_ORDER
+    ]
+
+    all_manifest_rows: list[dict[str, Any]] = []
+    split_summaries: dict[str, dict[str, int]] = {}
+
+    for split in ordered_splits:
+        target_count = int(splits_cfg[split])
+        csv_path = find_annotation_csv(resolved_raw, split)
+        by_image, skipped = read_annotations(csv_path)
+
+        if len(by_image) < target_count:
+            raise ValueError(
+                f"Split '{split}' requires {target_count} images, "
+                f"but only {len(by_image)} valid images found in '{csv_path}'."
+            )
+
+        selected_ids = sample_split(list(by_image.keys()), target_count, seed)
+        # Keep manifest and output order deterministic across runs.
+        selected_ids_sorted = sorted(selected_ids)
+
+        images_out = resolved_out / "images" / split
+        labels_out = resolved_out / "labels" / split
+        images_out.mkdir(parents=True, exist_ok=True)
+        labels_out.mkdir(parents=True, exist_ok=True)
+
+        split_rows: list[dict[str, Any]] = []
+        total_boxes = 0
+
+        for image_name in selected_ids_sorted:
+            boxes = by_image[image_name]
+            src_img = find_image_path(resolved_raw, split, image_name)
+            dst_img = images_out / image_name
+            shutil.copy2(src_img, dst_img)
+
+            label_lines = [to_yolo_line(b.x1, b.y1, b.x2, b.y2, b.img_w, b.img_h) for b in boxes]
+            label_path = labels_out / f"{Path(image_name).stem}.txt"
+            with label_path.open("w", encoding="utf-8", newline="\n") as lf:
+                lf.write("\n".join(label_lines) + "\n")
+
+            row = {
+                "image": image_name,
+                "split": split,
+                "n_boxes": len(boxes),
+                "image_width": boxes[0].img_w,
+                "image_height": boxes[0].img_h,
+            }
+            split_rows.append(row)
+            all_manifest_rows.append(row)
+            total_boxes += len(boxes)
+
+        _write_manifest(resolved_out / "manifests" / f"{split}.csv", split_rows)
+        split_summaries[split] = {
+            "images": len(split_rows),
+            "boxes": total_boxes,
+            "skipped_rows": skipped,
+        }
+
+    manifest_path = resolved_out / "MANIFEST.csv"
+    _write_manifest(manifest_path, all_manifest_rows)
+
+    metadata = {
+        "dataset_version": dataset_version,
+        "seed": seed,
+        "splits": split_summaries,
+        "total_images": sum(s["images"] for s in split_summaries.values()),
+        "total_boxes": sum(s["boxes"] for s in split_summaries.values()),
+        "manifest_sha256": _sha256_file(manifest_path),
+    }
+    metadata_path = resolved_out / "dataset_metadata.json"
+    with metadata_path.open("w", encoding="utf-8", newline="\n") as mf:
+        json.dump(metadata, mf, indent=2)
+        mf.write("\n")
+
+    return metadata
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True)
+    parser.add_argument("--raw-dir", type=Path, default=None)
+    parser.add_argument("--out-dir", type=Path, default=None)
     args = parser.parse_args()
-    cfg = yaml.safe_load(args.config.read_text())
-    print(f"Building {cfg['dataset_version']} from {cfg['raw_dir']} → {cfg['out_dir']}")
-    # TODO(Sprint 1):
-    #  1. read annotations_{train,val,test}.csv
-    #     (image_name, x1, y1, x2, y2, class, image_width, image_height);
-    #  2. sample_split() each official split to the sizes in cfg["splits"] using cfg["seed"];
-    #  3. copy images to <out_dir>/images/<split>/,
-    #     write labels/<split>/<image>.txt with to_yolo_line();
-    #  4. write <out_dir>/MANIFEST.csv (image, split, n_boxes) and print stats.
-    raise SystemExit("prepare_subset not implemented yet")
+
+    cfg = yaml.safe_load(args.config.read_text(encoding="utf-8"))
+    raw_dir = args.raw_dir or Path(cfg["raw_dir"])
+    out_dir = args.out_dir or Path(cfg["out_dir"])
+    print(f"Building {cfg['dataset_version']} from {raw_dir} -> {out_dir} (seed={cfg['seed']})")
+
+    metadata = build_subset(cfg, raw_dir=args.raw_dir, out_dir=args.out_dir)
+    for split, info in metadata["splits"].items():
+        avg_boxes = info["boxes"] / info["images"] if info["images"] else 0.0
+        print(
+            f"  {split:<5}: {info['images']} images, {info['boxes']} boxes "
+            f"(mean {avg_boxes:.1f}/img, skipped {info['skipped_rows']} invalid rows)"
+        )
+    print(
+        f"Done: {metadata['total_images']} images, {metadata['total_boxes']} boxes. "
+        f"MANIFEST SHA-256: {metadata['manifest_sha256']}"
+    )
 
 
 if __name__ == "__main__":
