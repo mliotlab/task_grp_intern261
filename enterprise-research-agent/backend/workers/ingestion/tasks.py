@@ -17,7 +17,6 @@ from app.db.session import get_sessionmaker
 from app.models.document import Chunk, Document, DocumentStatus
 from workers.embedding import embed_chunks
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -140,7 +139,7 @@ def process_file(
             embedding=embedding,
         )
         for index, (chunk, embedding) in enumerate(
-            zip(chunks, embeddings)
+            zip(chunks, embeddings, strict=True)
         )
     ]
 
