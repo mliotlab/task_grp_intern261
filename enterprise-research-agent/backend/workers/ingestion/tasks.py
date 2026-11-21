@@ -1,4 +1,3 @@
-
 """Ingestion worker: parse → chunk → embed → index (FR-02, NFR-03, NFR-04)."""
 
 from __future__ import annotations
@@ -103,7 +102,6 @@ def chunk_sections(
     return chunks
 
 
-
 def process_file(
     path: str,
     content_type: str,
@@ -120,14 +118,10 @@ def process_file(
         return []
 
     # Embed all chunks in one batch
-    embeddings = embed_chunks(
-        [chunk.text for chunk in chunks]
-    )
+    embeddings = embed_chunks([chunk.text for chunk in chunks])
 
     if len(chunks) != len(embeddings):
-        raise RuntimeError(
-            "Chunk and embedding counts do not match."
-        )
+        raise RuntimeError("Chunk and embedding counts do not match.")
 
     # Combine chunk metadata with embedding vectors
     return [
@@ -138,9 +132,7 @@ def process_file(
             section=chunk.section,
             embedding=embedding,
         )
-        for index, (chunk, embedding) in enumerate(
-            zip(chunks, embeddings, strict=True)
-        )
+        for index, (chunk, embedding) in enumerate(zip(chunks, embeddings, strict=True))
     ]
 
 
@@ -152,9 +144,7 @@ def _mark_document_failed(
 
     with get_sessionmaker()() as db:
         document = db.execute(
-            select(Document)
-            .where(Document.id == document_id)
-            .with_for_update()
+            select(Document).where(Document.id == document_id).with_for_update()
         ).scalar_one_or_none()
 
         if document is None:
@@ -185,9 +175,7 @@ def process_document(document_id: str) -> None:
     try:
         document_uuid = uuid.UUID(document_id)
     except ValueError as exc:
-        raise ValueError(
-            f"Invalid document ID: {document_id}"
-        ) from exc
+        raise ValueError(f"Invalid document ID: {document_id}") from exc
 
     try:
         # ----------------------------------------------------
@@ -196,15 +184,11 @@ def process_document(document_id: str) -> None:
 
         with get_sessionmaker()() as db:
             document = db.execute(
-                select(Document)
-                .where(Document.id == document_uuid)
-                .with_for_update()
+                select(Document).where(Document.id == document_uuid).with_for_update()
             ).scalar_one_or_none()
 
             if document is None:
-                raise LookupError(
-                    f"Document not found: {document_id}"
-                )
+                raise LookupError(f"Document not found: {document_id}")
 
             # Idempotency: already successfully ingested.
             if document.status == DocumentStatus.READY:
@@ -244,9 +228,7 @@ def process_document(document_id: str) -> None:
         file_path = Path(storage_path)
 
         if not file_path.is_file():
-            raise FileNotFoundError(
-                f"Document file not found: {storage_path}"
-            )
+            raise FileNotFoundError(f"Document file not found: {storage_path}")
 
         logger.info(
             "Document file found",
@@ -263,9 +245,7 @@ def process_document(document_id: str) -> None:
         )
 
         if not embedded_chunks:
-            raise ValueError(
-                "No extractable text found in the document."
-            )
+            raise ValueError("No extractable text found in the document.")
 
         logger.info(
             "Document processing completed",
@@ -281,29 +261,19 @@ def process_document(document_id: str) -> None:
 
         with get_sessionmaker()() as db:
             document = db.execute(
-                select(Document)
-                .where(Document.id == document_uuid)
-                .with_for_update()
+                select(Document).where(Document.id == document_uuid).with_for_update()
             ).scalar_one_or_none()
 
             if document is None:
-                raise LookupError(
-                    f"Document was deleted during processing: {document_id}"
-                )
+                raise LookupError(f"Document was deleted during processing: {document_id}")
 
             if document.status != DocumentStatus.PROCESSING:
-                raise RuntimeError(
-                    "Document status changed unexpectedly during processing."
-                )
+                raise RuntimeError("Document status changed unexpectedly during processing.")
 
             # Remove previous chunks to support safe reprocessing.
             # This deletion and the new inserts belong to the same
             # transaction.
-            db.execute(
-                delete(Chunk).where(
-                    Chunk.document_id == document_uuid
-                )
-            )
+            db.execute(delete(Chunk).where(Chunk.document_id == document_uuid))
 
             chunk_records = [
                 Chunk(
