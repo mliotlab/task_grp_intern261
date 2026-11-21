@@ -2,6 +2,8 @@
 
 Templates live in [`/docs/templates`](../../docs/templates/). Create each document from its template when due.
 
+See the [Sprint 1 work plan](SPRINT_1_WORK_PLAN.md) for owners, deliverables, and acceptance checks.
+
 | Document | Path | Due | Status |
 |---|---|---|---|
 | Product Requirements | `PRD.md` | Sprint 1 | ⬜ |
