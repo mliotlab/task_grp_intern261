@@ -28,6 +28,9 @@ dashboard: ## Run the dashboard locally
 data: ## Build the SKU-110K subset (1000 / 200 / 200)
 	$(PY) training/scripts/prepare_subset.py --config training/configs/data_subset.yaml
 
+eda: ## Compute EDA statistics for the SKU-110K subset
+	$(PY) training/scripts/eda.py --data-dir data/sku110k_subset --out-md docs/reports/sku110k_eda.md --out-json docs/reports/sku110k_eda.json
+
 train: ## Fine-tune the detector (GPU)
 	$(PY) training/scripts/train.py --config training/configs/train_yolov8n.yaml
 

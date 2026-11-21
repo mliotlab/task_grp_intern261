@@ -1,0 +1,24 @@
+{
+  "dataset_version": "sku110k-subset-v1",
+  "seed": 2026,
+  "splits": {
+    "train": {
+      "images": 1000,
+      "boxes": 148029,
+      "skipped_rows": 0
+    },
+    "val": {
+      "images": 200,
+      "boxes": 30476,
+      "skipped_rows": 0
+    },
+    "test": {
+      "images": 200,
+      "boxes": 29379,
+      "skipped_rows": 0
+    }
+  },
+  "total_images": 1400,
+  "total_boxes": 207884,
+  "manifest_sha256": "a8cb3cd88cbd1d8daed2edd608db34fafd6a08eec2157d49b71c1ddba176d8ca"
+}
