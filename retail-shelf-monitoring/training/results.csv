@@ -1,1 +1,2 @@
 timestamp,weights,split,map50,map50_95,precision,recall,notes
+2026-11-23T17:46:00+00:00,yolo26s.pt,val_spike50,0.3753,0.1731,0.3999,0.5361,"sku110k-shelf-v2; imgsz=1024; tile=1024; agnostic_nms=True; max_det=1000; best_conf_f1=0.0111; gpu_p95_ms=1153.6; cpu_p95_ms=4756.2"
