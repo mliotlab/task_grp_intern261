@@ -5,7 +5,7 @@ Templates: [`/docs/templates`](../../docs/templates/).
 | Document | Path | Due | Status |
 |---|---|---|---|
 | Product Requirements | `PRD.md` | Sprint 1 | ⬜ |
-| Design Doc v0 → v1 (incl. row/gap/fill-rate algorithm) | `DESIGN.md` | Sprint 1 → 2 | ⬜ |
+| Design Doc v0 → v1 (incl. row/gap/fill-rate algorithm) | `DESIGN.md` | Sprint 1 → 2 | 🟨 Draft; architecture and open decisions documented |
 | ADRs | `adr/` | as decisions are made | 🟨 1 |
 | Model Card | `../models/<version>/MODEL_CARD.md` | Sprint 3 | ⬜ |
 | Test Plan | `TEST_PLAN.md` | Sprint 3 | ⬜ |
