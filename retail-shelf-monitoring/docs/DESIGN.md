@@ -1,6 +1,6 @@
 # Design Doc – Retail Shelf Monitoring
 
-**Version:** v0 · **Authors:** Trần Tất Nguyên, Phạm Minh Phú · **Reviewer:** Lê Trần Tấn Phát · **Last updated:** 21/11/2026
+**Version:** v0 · **Authors:** Trần Tất Nguyên, Phạm Minh Phú · **Reviewer:** Lê Trần Tấn Phát · **Last updated:** 22/11/2026
 
 ## 1. Summary
 
@@ -18,9 +18,10 @@ Retail Shelf Monitoring is a service that takes a shelf photo and returns detect
 
 ### Non-goals for this v0
 
-- Exact SKU/brand recognition, planogram compliance, live video, cloud production deployment, authentication/RBAC, or mobile applications.
+- Exact SKU/brand recognition, planogram compliance, live video, authentication/RBAC, or mobile applications.
 - Fine-tuning or evaluating a novel detector architecture from scratch.
-- Dashboard alert-resolution workflows are included in the expanded FR-07 scope. Batch CLI, outgoing webhooks, and per-camera/store ROI behavior (FR-08..FR-10) remain outside this design scope; the dashboard service may run in Compose, but its non-alert UI workflows are not specified here.
+- Cloud production deployment or hosted external storage/database services (e.g., Supabase, MinIO); v0/v1 runs locally on a single host via Docker Compose.
+- Dashboard alert-resolution workflows are included in the expanded FR-07 scope. Batch CLI, outgoing webhooks, and per-camera/store ROI implementation (FR-08..FR-10) remain outside v0 runtime scope, though the post-processing rule specifies the minimal Store ROI contract for FR-10 readiness.
 
 ## 3. Architecture overview
 
@@ -37,8 +38,8 @@ flowchart LR
     API -->|decoded image| Inf[Inference<br/>YOLO detector]
     Inf -->|boxes + confidence| Post[Post-processing]
     Post -->|AnalysisResult + annotated image| API
-    API --> DB[(SQLAlchemy database)]
-    API --> Files[(Persistent image storage)]
+    API --> DB[(PostgreSQL)]
+    API --> Files[(Local image storage<br/>IMAGE_DIR)]
   end
 
   Registry -.->|load model| Inf
@@ -48,8 +49,8 @@ flowchart LR
 |---|---|---|---|
 | API service | Validate upload, orchestrate inference/post-processing, persist results, return JSON, and expose OpenAPI. | `services/api/` | Nguyên |
 | Inference | Load model by version, resize image, run detector, and return boxes with confidence. | `shelfmon/inference/` | Phú (model), Nguyên (integration) |
-| Post-processing | Filter confidence, cluster rows, detect gaps, compute fill rates, decide low-fill alerts, and render the annotated image in memory; it performs no persistence or network I/O. | `shelfmon/postprocess/`, `shelfmon/alert.py` | Phú (geometry), Nguyên (alert/persistence integration) |
-| Database and image storage | Store analysis/alert metadata and original/annotated image files; persist an `Alert` record when an analysis triggers an alert. | API persistence layer and configured image directory | Nguyên |
+| Post-processing | Filter detections, estimate shelf/row bounds ([ADR-0003](adr/0003-post-processing-rule.md)) or apply Store ROI, detect gaps and compute fill rates ([ADR-0002](adr/0002-gap-detection-rule.md)), decide alerts, and render the annotated image in memory; performs no persistence or network I/O. | `shelfmon/postprocess/`, `shelfmon/alert.py` | Phú (geometry), Nguyên (alert/persistence integration) |
+| Database and image storage | Persist analysis/alert metadata in local PostgreSQL and store original/annotated image files under `IMAGE_DIR` on the persistent Compose volume. | API persistence layer (`services/api/`) and `IMAGE_DIR` | Nguyên |
 | Dashboard service | Runs with the API in Compose; lists unresolved alerts and provides the mark-as-resolved workflow for FR-07. Other dashboard workflows remain outside this design scope. | `services/dashboard/` | Nguyên |
 | Training pipeline | Prepare subset, fine-tune/evaluate, and publish weight/version metadata. | `training/`, `models/` | Phú |
 
@@ -145,15 +146,15 @@ The dashboard calls `GET /v1/alerts?status=unresolved` to show alerts requiring 
 
 ### 4.3 Post-processing baseline
 
-1. Filter detections below `CONF_THRESHOLD`.
-2. Group boxes by vertical center using a tolerance relative to median box height; sort rows top-to-bottom and boxes left-to-right. This baseline is sensitive to perspective/tilted shelves and must be evaluated on representative examples. The vertical-center tolerance method is the v0 baseline. In Sprint 2, the team will compare it with vertical-axis DBSCAN on representative images before selecting the row-clustering method.
-3. For each row, first merge overlapping boxes into a union of x-intervals, then compute the uncovered horizontal intervals between neighboring boxes and the analysis-area edges. Flag a gap when its width is greater than `GAP_WIDTH_MULTIPLIER × mean box width in that row`.
-4. Row fill rate is the union length of product x-intervals divided by the analysis width. Overall fill rate is the arithmetic mean of row fill rates; each detected row contributes equally, regardless of height or box count. If there are no detected rows, the value is determined by the no-detection policy below (provisionally `0.0`).
-5. For analyses with at least one detected row, set `alert = true` when the overall fill rate is below `FILL_RATE_ALERT_THRESHOLD` (default `0.80`) and create a corresponding alert record during persistence. If no rows are detected, follow the separate no-detection policy below; its alert behavior remains provisional.
+Detailed geometry, edge-case, annotation, and evaluation rules are specified in [ADR-0003](adr/0003-post-processing-rule.md) (shelf/row geometry & ROI contract) and [ADR-0002](adr/0002-gap-detection-rule.md) (gap detection, fill rate & NFR-02 evaluation). At a high level:
 
-**No-detection case (proposal pending confirmation).** One possible policy is to return `fill_rate = 0.0`, `alert = true`, and persist an alert reason of `no_detection`, distinguishing it from `low_fill`. This is not a frozen contract until Phú/mentor confirms whether an image with zero detections should trigger a restock alert; see section 11.
-
-The full image width is the v0 analysis width because per-store ROI is out of scope. This can misstate fill rate when the shelf occupies only part of the image. `GAP_WIDTH_MULTIPLIER` currently defaults to `1.5`; it is configurable and must be tuned against labeled gap examples before treating it as an empirically validated value.
+1. **Filter detections:** Drop boxes below `CONF_THRESHOLD` and remove extreme geometric outliers before row grouping, while keeping sparse rows (1–2 valid products) instead of enforcing a hard minimum box count per row.
+2. **Shelf & row localization ([ADR-0003](adr/0003-post-processing-rule.md)):**
+   - If a fixed-camera Store ROI (`shelf_bbox` + `row_lines`) is configured for `store_id` (FR-10), assign boxes directly to the ROI tiers.
+   - Otherwise, cluster boxes by vertical position, estimate shelf tilt `θ` to deskew into a parallelogram outer-product boundary (clamped to image bounds when clipped or partially occluded), and infer sandwiched completely empty middle tiers from vertical inter-row spacing `Δy`. All rows (occupied and inferred empty) receive sequential `row_index` values top-to-bottom.
+3. **Gap detection ([ADR-0002](adr/0002-gap-detection-rule.md)):** Merge overlapping `x`-intervals per row within `[row_x1, row_x2]` and measure free spans between neighboring products and row edges. Flag a `Gap` when span width exceeds `GAP_WIDTH_MULTIPLIER` (default `1.5`, tunable in later sprints) × the `median` width of the 4–5 neighboring original boxes around the gap; completely empty rows produce one full-width gap.
+4. **Fill rate ([ADR-0002](adr/0002-gap-detection-rule.md)):** `row_fill_rate` is the union length of product `x`-intervals divided by `(row_x2 - row_x1)` (`0.0` for empty rows). `image_fill_rate` is the arithmetic mean across all rows (including inferred or ROI empty rows).
+5. **Alert & no-detection policy:** Raise `alert = true` when `image_fill_rate < FILL_RATE_ALERT_THRESHOLD` (default `0.80`). When `0` valid rows are detected (and no ROI tiers exist), return `fill_rate = 0.0`, `alert = true`, and record `Alert.reason = "no_detection"` (distinct from `"low_fill"`).
 
 ## 5. API
 
@@ -241,7 +242,7 @@ erDiagram
   ALERT {
     string alert_id PK
     string analysis_id FK
-    string reason "low_fill | no_detection (if policy is approved)"
+    string reason "low_fill | no_detection"
     string status "unresolved | resolved"
     datetime created_at
     datetime resolved_at "nullable"
@@ -250,10 +251,10 @@ erDiagram
 
 | Entity | Fields | Purpose |
 |---|---|---|
-| `Analysis` | `analysis_id` (PK), `store_id`, `created_at` (UTC), `model_version`, `product_count`, `fill_rate`, `alert`, `result_json`, `config_snapshot`, `original_image_path`, `annotated_image_path` | Analysis history and full result; composite index on (`store_id`, `created_at`) for filters. `config_snapshot` records the thresholds used, so old results stay interpretable after configuration changes. |
-| `Alert` | `alert_id` (PK), `analysis_id` (FK), `reason` (`low_fill`; optionally `no_detection` if approved), `status` (`unresolved` or `resolved`), `created_at`, `resolved_at` (nullable) | Records the alert required by FR-04. New alerts start as `unresolved`; the FR-07 dashboard can list unresolved alerts and mark them `resolved`, setting `resolved_at`. No `resolved_by` is stored because authentication/RBAC is outside the current scope. |
+| `Analysis` | `analysis_id` (PK), `store_id`, `created_at` (UTC), `model_version`, `product_count`, `fill_rate`, `alert`, `result_json`, `config_snapshot`, `original_image_path`, `annotated_image_path` | Analysis history and full result in PostgreSQL (`JSON`/`JSONB` payloads, UTC timestamps); composite index on (`store_id`, `created_at`) for filters. `config_snapshot` records the thresholds used, so old results stay interpretable after configuration changes. |
+| `Alert` | `alert_id` (PK), `analysis_id` (FK), `reason` (`low_fill` or `no_detection`), `status` (`unresolved` or `resolved`), `created_at`, `resolved_at` (nullable) | Records the alert required by FR-04. New alerts start as `unresolved`; the FR-07 dashboard can list unresolved alerts and mark them `resolved`, setting `resolved_at`. No `resolved_by` is stored because authentication/RBAC is outside the current scope. |
 
-Store image paths relative to a configurable image directory; do not persist absolute host paths or image bytes in SQLite. Before using it in a path, validate `store_id` as `^[A-Za-z0-9_-]{1,64}$` and reject invalid values with `422`. The original and annotated image files must live on persistent storage, for example `{IMAGE_DIR}/{store_id}/{analysis_id}_original.jpg` and `..._annotated.jpg`. Database engine and image-storage backend remain PRD open questions: SQLite plus the existing Compose named volume and local image directory are proposed for single-host MVP, pending team/mentor decision and ADR.
+Metadata lives in a local **PostgreSQL** container (via Docker Compose) while original and annotated image files stay on the local persistent volume under `IMAGE_DIR` (for example `{IMAGE_DIR}/{store_id}/{analysis_id}_original.jpg` and `..._annotated.jpg`). Do not persist absolute host paths or raw image bytes in PostgreSQL. Before constructing paths, validate `store_id` as `^[A-Za-z0-9_-]{1,64}$` and reject invalid values with `422`. Hosted/cloud databases or object storage (such as Supabase or MinIO) are not used for this local single-host deployment; detailed PostgreSQL schema/migration choices remain to be finalized by the backend owner (see section 11).
 
 **Data lifecycle.** Records and images are kept until manually removed; there is no automatic retention policy in v0, which is a known limitation to document in the Runbook.
 
@@ -263,8 +264,8 @@ Store image paths relative to a configurable image directory; do not persist abs
 |---|---|---|---|
 | Detector integration | In-process detector behind `Detector` interface | Separate inference service/queue | In-process is simpler and lower-latency for one host; a separate worker is unnecessary at MVP scale. Use a bounded worker thread for blocking inference. |
 | Test detector | `FakeDetector` in tests | Load YOLO weights in every unit test | Fake detector makes API and geometry tests deterministic and fast; real-model quality is covered by evaluation, not unit tests. |
-| Database | SQLite proposed for local MVP | PostgreSQL from first sprint | SQLite needs no service container and fits low-volume single-host use. Revisit for concurrent writers or multiple replicas; decision remains open until ADR. |
-| Image storage | Local persistent volume proposed | MinIO/object store | Local volume is simple for a single Compose host; MinIO adds operational work but is appropriate if multi-host sharing is required. Decision remains open until ADR. |
+| Database | PostgreSQL (local Docker Compose service) | SQLite or cloud-hosted Postgres (e.g., Supabase) | Local PostgreSQL avoids SQLite file-lock contention between concurrent API requests and the dashboard and supports `JSONB` payloads, while keeping the entire stack self-contained locally without cloud credentials. Detailed DB config/ADR to be completed by backend owner. |
+| Image storage | Local persistent volume (`IMAGE_DIR`) | MinIO / Supabase Storage / cloud object store | Local persistent volume keeps single-host Compose simple and low-latency with no external cloud dependencies. |
 
 ## 8. Testing and evaluation
 
@@ -278,7 +279,7 @@ Store image paths relative to a configurable image directory; do not persist abs
 | FR-06 | Negative API tests for corrupt bytes, unsupported formats, oversize uploads, and valid `/health`; assert 4xx errors do not crash the service and use the standard error body. |
 | FR-07 | Dashboard/API integration tests verify unresolved alerts are listed, marking an alert resolved updates `status` and `resolved_at`, and resolved alerts no longer appear in the default unresolved filter. |
 | NFR-01 | Evaluate pretrained baseline and fine-tuned model on fixed 200-image test split; report mAP@0.5 and mAP@0.5:0.95. |
-| NFR-02 | Evaluate gap precision/recall on at least 30 annotated images with documented labels and IoU matching in `EVAL_REPORT.md`. |
+| NFR-02 | Evaluate gap precision/recall on at least 30 annotated images using the bbox annotation guidelines and Row-Aligned 1D Horizontal IoU (`>= 0.5`) + Vertical Overlap (`>= 0.5`) matching documented in [ADR-0002](adr/0002-gap-detection-rule.md) and `EVAL_REPORT.md`. |
 | NFR-03 | 100-request API load test on images with longest side ≤1920 px; record hardware, warm-up, concurrency, and p95. Check configured detector `max_det` for truncation on dense validation images. |
 | NFR-04 | Run the complete invalid-input suite, defined as: corrupt image, wrong format, over 10 MB, empty file, missing `store_id`, invalid filter parameters. Every invalid request returns a 4xx response and leaves the service available. |
 | NFR-05 | Verify structured request logs include request ID, per-stage timings, detection count, and model version; never log image bytes/secrets. |
@@ -287,13 +288,13 @@ Store image paths relative to a configurable image directory; do not persist abs
 
 ## 9. Operations
 
-- API listens on port `8000`; Docker Compose also starts the Streamlit dashboard on `8501`. The dashboard is a client of the API; its FR-07 alert workflows are specified in this document, while other dashboard workflows remain outside the current scope.
-- Use the persistent Compose volume for the SQLite file and configured image directory in the single-host MVP. Model files are read-only and versioned under `models/`; weights are not committed to Git.
+- API listens on port `8000`; Docker Compose also starts the local PostgreSQL service and the Streamlit dashboard on `8501`. The dashboard is a client of the API; its FR-07 alert workflows are specified in this document, while other dashboard workflows remain outside the current scope.
+- Use persistent Compose volumes for PostgreSQL data and `IMAGE_DIR` in the local single-host deployment. Model files are read-only and versioned under `models/`; weights are not committed to Git.
 - Configure `DATABASE_URL`, `IMAGE_DIR`, `MODEL_DIR`, `MODEL_VERSION`, `DEVICE`, `IMGSZ`, `MAX_UPLOAD_MB`, `MAX_IMAGE_SIDE`, `CONF_THRESHOLD`, `GAP_WIDTH_MULTIPLIER`, and `FILL_RATE_ALERT_THRESHOLD` through environment variables. Keep `.env` private and `.env.example` safe.
 - Load the detector once at startup and warm it up where practical. Bound concurrent inference according to available CPU/GPU memory.
 - Emit structured JSON logs per request with request ID, stage timings, detection count, model version, and status. `/health` reports API liveness and version; dependency readiness can be added separately if operational monitoring needs it.
 - Compose currently requires `.env` because it declares `env_file: .env`; clean-clone documentation must explain creating it from `.env.example`. A model-weight file may also be needed for real inference. Do not claim `docker compose up` is self-sufficient until these prerequisites are resolved.
-- SQLite and local files are single-host MVP choices, not a multi-replica production storage design.
+- Local PostgreSQL and local `IMAGE_DIR` volumes are designed for local single-host execution; cloud production deployment and hosted storage services are out of scope.
 
 ## 10. Security and privacy
 
@@ -307,21 +308,25 @@ Store image paths relative to a configurable image directory; do not persist abs
 
 | Risk / question | Mitigation / next action |
 |---|---|
-| Row clustering can fail on tilted, occluded, or irregular shelves. | Use height-relative baseline clustering; document failure modes and evaluate representative images. |
-| Empty-gap labels are subjective and gaps can be occluded. | Define annotation rules and cross-check labels before reporting NFR-02. |
+| Clipped, occluded, tilted, or edge-missing shelves distort boundary estimation without ROI. | Use deskewed parallelogram framing clamped to image boundaries ([ADR-0003](adr/0003-post-processing-rule.md)); accept dependency on outermost corner products until Store ROI (FR-10) is configured. |
+| Empty top-most/bottom-most tiers and heterogeneous tier heights affect empty-row inference. | Use `Δy` vertical-spacing heuristic for sandwiched empty tiers ([ADR-0003](adr/0003-post-processing-rule.md)), evaluate on representative images, and switch to explicit ROI `row_lines` for fixed cameras. |
+| Empty-gap labels are subjective and 2D IoU penalizes minor vertical variance. | Standardize annotation rules and evaluate with Row-Aligned 1D Horizontal IoU + Vertical Overlap ([ADR-0002](adr/0002-gap-detection-rule.md)). |
 | Dense images may be truncated by detector `max_det`. | Record the setting and verify predictions on dense validation images before publishing model metrics; do not treat ground-truth max box count as a prediction count. |
 | CPU inference may miss p95 target. | Benchmark nano/small and report hardware, warm-up, image size, concurrency, and measured p95. |
-| SQLite vs PostgreSQL is unresolved in PRD. | Treat SQLite as provisional for local MVP; confirm with mentor and record an ADR before calling it final. |
-| Local volume vs MinIO is unresolved in PRD. | Use local persistent storage only for single-host MVP if approved; revisit for multi-host use and record an ADR. |
-| Gap multiplier is not validated. | Keep it configurable (current default `1.5`) and tune on the annotated gap set. |
-| Overall fill-rate definition may not match shelf geometry. | v0 uses the arithmetic mean of row fill rates and full image width; confirm the definition and document its limitation before evaluation. |
-| A row with a few false-positive boxes can distort the overall fill rate. | Evaluate on dense and sparse examples; consider a minimum box count per row if this appears in error analysis. |
-| Empty detections can come from a detector failure or a non-shelf image, not an empty shelf. | Decide whether such cases should raise an alert and whether to record a reason; see open decision 3. |
+| PostgreSQL migration, test isolation, and health-check behavior are not yet specified in detail. | Backend owner (Nguyên) to finalize implementation details and DB ADR; see Open questions below. |
+| Gap multiplier (`1.5`) and `Δy` empty-tier multiplier (`k_v`) are not yet empirically tuned. | Keep thresholds configurable and tune on the >= 30-image labeled gap set in Sprint 2–3. |
+| Empty detections can come from a detector failure or a non-shelf image, not an empty shelf. | Confirmed: return `fill_rate = 0.0`, `alert = true`, and persist `reason = "no_detection"` so dashboard users can distinguish it from `"low_fill"`. |
 
-### Open decisions
+### Resolved vs. open decisions
 
-1. Confirm SQLite + persistent local volume as the single-host default, or use PostgreSQL/MinIO from the start (PRD section 9).
-2. Confirm `1.5×` mean row box width as the initial gap threshold until it is tuned on labeled images (PRD section 9).
-3. Confirm the no-detection behavior: should zero detections produce `fill_rate = 0.0` and an alert with `reason = no_detection`, or should the response instead indicate that analysis was inconclusive without triggering a restock alert?
-4. Confirm the overall fill-rate definition (full image width, arithmetic mean of rows) with Phú, and whether row-level alerts are needed in addition to the overall alert. Also confirm whether `mean box width in that row` (gap threshold) is measured on the original boxes or on the merged x-intervals, since the two differ for heavily overlapping boxes.
-5. Confirm the standardized error body; request IDs remain in structured logs and are not part of the response model in this v0.
+- **Resolved (pending mentor ADR review):**
+  1. Local PostgreSQL (Docker Compose) + local `IMAGE_DIR` persistent volume is the single-host storage design; cloud deployment and hosted services (e.g., Supabase, MinIO) are dropped.
+  2. Post-processing shelf/row estimation ([ADR-0003](adr/0003-post-processing-rule.md)) uses deskewed parallelogram framing (or Store ROI `shelf_bbox` + `row_lines`), preserves sparse 1–2 box rows, and infers sandwiched empty tiers via `Δy` with sequential `row_index`.
+  3. Gap detection ([ADR-0002](adr/0002-gap-detection-rule.md)) uses `1.5 × median` width of 4–5 neighboring original boxes (tunable), handles full-row empty tiers, computes `image_fill_rate` as the arithmetic mean of row fill rates, sets `no_detection` alert reason on zero rows, and evaluates NFR-02 via Row-Aligned 1D Horizontal IoU + Vertical Overlap.
+  4. Standardized error body remains as defined in section 5; request IDs remain in structured logs.
+
+- **Open questions for backend owner (Nguyên) to complete PostgreSQL docs:**
+  1. **Schema management:** Use `Alembic` migrations from Sprint 2, or `SQLAlchemy Base.metadata.create_all()` at startup for MVP?
+  2. **Database driver & test compatibility:** Confirm `psycopg` v3 (`postgresql+psycopg://...`) and whether JSON columns use `JSON().with_variant(JSONB(), "postgresql")` so unit tests can still run on SQLite in-memory without Docker (or run a PostgreSQL service container in CI `lint-test`).
+  3. **Health vs. readiness check:** Keep `GET /health` as pure API liveness (`200`), or add a `SELECT 1` DB check / separate `/ready` endpoint?
+  4. **Compose defaults & ADR:** Document final Postgres env/pool settings in `.env.example` / `docker-compose.yml` and author `docs/adr/0004-database-sqlite-vs-postgres.md`.
