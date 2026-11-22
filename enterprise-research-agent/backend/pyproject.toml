@@ -31,7 +31,10 @@ dependencies = [
 [project.optional-dependencies]
 ingest = ["pymupdf>=1.24", "python-docx>=1.1"]
 # Local embedding model (pulls PyTorch, several GB). Not installed in the default image.
-embeddings = ["sentence-transformers>=3.0"]
+embeddings = [
+    "sentence-transformers>=3.0",
+    "google-genai>=1.0",
+]
 llm = ["openai>=1.40"]
 dev = ["pytest>=8.2", "pytest-cov>=5.0", "ruff>=0.6"]
 load = ["locust>=2.29"]   # load tests (NFR-03), Sprint 3
@@ -49,7 +52,10 @@ extend = "../../ruff.toml"
 testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "-ra"
-markers = ["integration: needs PostgreSQL + Redis (provided by CI services or docker compose)"]
+markers = [
+  "integration: needs PostgreSQL + Redis (provided by CI services or docker compose)",
+  "gemini: makes real Gemini API calls",
+]
 
 [tool.coverage.run]
 source = ["app", "workers"]
