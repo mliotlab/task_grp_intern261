@@ -252,8 +252,8 @@ Ngoài ra, hệ thống sử dụng bộ tài liệu công khai hoặc dữ li�
 
 ### 8.1 Giả định và ràng buộc
 
-1. **LLM:** Sử dụng API do mentor cấp hoặc model chạy local qua Ollama. Lựa chọn cuối cùng được chốt trong Sprint 1 và ghi nhận bằng ADR.
-2. **Bộ tài liệu:** Nhóm chọn 50–100 tài liệu công khai cùng một chủ đề (ví dụ tài liệu kỹ thuật mã nguồn mở, báo cáo thường niên công khai hoặc paper arXiv); mentor duyệt bộ tài liệu.
+1. **LLM:** Sử dụng API Gemini 3.5 Flash-Lite qua Gemini API Free Tier. Lựa chọn cuối cùng được chốt trong Sprint 1 và ghi nhận bằng ADR 0003.
+2. **Bộ tài liệu:** Nhóm chọn 50–100 tài liệu công khai cùng một chủ đề NIST SP-800.
 3. **Tập đánh giá:** Nhóm tự xây dựng tập gồm 30 câu hỏi nghiên cứu; mỗi câu có danh sách ý chính tham chiếu và tài liệu nguồn.
 4. **Dữ liệu:** Chỉ dùng dữ liệu công khai hoặc dữ liệu giả lập do nhóm tạo; không dùng dữ liệu thật của khách hàng hoặc dữ liệu cá nhân.
 5. **Secret:** Không commit API key, mật khẩu hoặc secret lên repository. Dùng `.env` (không commit) và `.env.example` (có commit).
@@ -297,14 +297,11 @@ Requirement Specification quy định bốn vai trò chính và trách nhiệm v
 
 Các câu hỏi dưới đây chưa được chốt trong Requirement Specification hoặc cần nhóm xác nhận trước/khi hoàn thiện Design Doc và OpenAPI contract:
 
-1. **LLM cụ thể:** Mentor sẽ cấp API của nhà cung cấp/model nào, hay nhóm dùng Ollama? Model và cấu hình cụ thể cần được chốt trong Sprint 1 và ghi ADR.
-2. **Embedding model:** Sẽ dùng model embedding đa ngôn ngữ nào? Requirement Specification mới nêu yêu cầu/gợi ý model đa ngôn ngữ, chưa chỉ định tên model.
-3. **Bộ tài liệu:** Chủ đề nào được nhóm lựa chọn cho 50–100 tài liệu công khai và đã được mentor duyệt chưa?
-4. **Tập đánh giá:** Ai phụ trách xây dựng 30 câu hỏi, ý chính tham chiếu và tài liệu nguồn; tiêu chí thống nhất đáp án tham chiếu sẽ được tổ chức thế nào?
-5. **Chi tiết bộ sưu tập và tài liệu:** Các thao tác quản lý cụ thể (ví dụ đổi tên/xóa bộ sưu tập hoặc xóa tài liệu) chưa được mô tả chi tiết trong FR; cần xác nhận trước khi chốt API/UI.
-6. **Chính sách tài khoản:** Chính sách mật khẩu, thời hạn JWT cụ thể và quy trình xử lý khi token hết hạn chưa được định lượng trong Requirement Specification.
-7. **Hủy và chạy lại tác vụ:** Quy tắc xử lý khi yêu cầu hủy đến sau khi worker đã bắt đầu một bước, cũng như cách liên kết lần chạy lại với báo cáo cũ, cần được thống nhất khi thiết kế.
-8. **Tìm kiếm web và phản hồi:** Phạm vi tool tìm kiếm web, cách lưu ghi chú đánh giá và cách bổ sung feedback vào tập đánh giá cần được xác nhận nếu thực hiện FR-11/FR-12 (mức Could).
+1. **Tập đánh giá:** Ai phụ trách xây dựng 30 câu hỏi, ý chính tham chiếu và tài liệu nguồn; tiêu chí thống nhất đáp án tham chiếu sẽ được tổ chức thế nào?
+2. **Chi tiết bộ sưu tập và tài liệu:** Các thao tác quản lý cụ thể (ví dụ đổi tên/xóa bộ sưu tập hoặc xóa tài liệu) chưa được mô tả chi tiết trong FR; cần xác nhận trước khi chốt API/UI.
+3. **Chính sách tài khoản:** Chính sách mật khẩu, thời hạn JWT cụ thể và quy trình xử lý khi token hết hạn chưa được định lượng trong Requirement Specification.
+4. **Hủy và chạy lại tác vụ:** Quy tắc xử lý khi yêu cầu hủy đến sau khi worker đã bắt đầu một bước, cũng như cách liên kết lần chạy lại với báo cáo cũ, cần được thống nhất khi thiết kế.
+5. **Tìm kiếm web và phản hồi:** Phạm vi tool tìm kiếm web, cách lưu ghi chú đánh giá và cách bổ sung feedback vào tập đánh giá cần được xác nhận nếu thực hiện FR-11/FR-12 (mức Could).
 
 ---
 
@@ -314,5 +311,3 @@ Các câu hỏi dưới đây chưa được chốt trong Requirement Specificat
 |---|---|---|
 | Nhóm SE-AI-02 | Pending | Chờ nhóm review và xác nhận. |
 | Mentor – Trần Phan Đăng Khôi | Pending | Chờ mentor review/approve theo quy trình tài liệu của dự án. |
-
-**Trạng thái tài liệu hiện tại:** Draft – chưa được nhóm review và mentor approve. PRD được xem là hoàn tất về mặt nộp tài liệu khi file `docs/PRD.md` được đưa vào Pull Request và chia sẻ link PR theo quy trình của dự án.
