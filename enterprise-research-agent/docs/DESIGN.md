@@ -243,35 +243,126 @@ Có hai tình huống làm job bị kẹt mà RQ không tự xử lý:
 
 NFR-04 được đáp ứng như sau: job đang chờ không mất nhờ Redis bật AOF và reconciler. Job đang chạy lúc worker khởi động lại được đưa về hàng đợi trong khoảng 600 s cộng một chu kỳ reconciler.
 
-## 5. API (bản nháp)
+## 5. API contract (bản nháp)
 
-Contract đầy đủ nằm ở [`api/openapi.yaml`](api/openapi.yaml). File này được sinh từ code bằng `make openapi`, và CI kiểm tra nó khớp với code.
+Contract đầy đủ nằm ở [`api/openapi.yaml`](api/openapi.yaml) (OpenAPI 3.1, đã kiểm tra bằng `openapi-spec-validator`). File này được **sinh từ code** bằng `make openapi`, và CI báo lỗi nếu nó lệch với code. Muốn đổi contract thì sửa schema/router trong `backend/app/` rồi chạy lại `make openapi`, không sửa tay file YAML.
 
-| Method | Path | Request | Response | Lỗi | FR |
+### 5.1 Danh sách endpoint
+
+| Method | Path | Request | Response thành công | Lỗi | FR |
 |---|---|---|---|---|---|
-| GET | `/health` | – | `{status, version}` | – | NFR-08 |
-| POST | `/v1/auth/register` | `{email, password (8–128)}` | 201 `{id, email}` | 409 email đã tồn tại, 422 | FR-01 |
-| POST | `/v1/auth/login` | `{email, password}` | `{access_token, token_type, expires_in}` | 401 (cùng thông báo cho email sai và mật khẩu sai) | FR-01 |
-| GET | `/v1/auth/me` | – | `{id, email}` | 401 | FR-01 |
-| GET | `/v1/collections` | – | `[{id, name, description, document_count, created_at}]` | 401 | FR-06 |
-| POST | `/v1/collections` | `{name, description?}` | 201 collection | 401, 422 | FR-06 |
-| DELETE | `/v1/collections/{collection_id}` | – | 204 | 401, 404 | FR-06 |
-| POST | `/v1/collections/{collection_id}/documents` | multipart `file` | 202 `{id, collection_id, filename, size_bytes, status, error, created_at}` | 401, 404, 413, 415 | FR-02 |
-| GET | `/v1/collections/{collection_id}/documents` | – | `[document]` | 401, 404 | FR-02 |
-| GET | `/v1/documents/{document_id}` | – | document | 401, 404 | FR-02 |
-| GET | `/v1/chunks/{chunk_id}` | – | `{id, document_id, filename, page, section, text}` | 401, 404 | FR-06 |
+| GET | `/health` | – | 200 `{status, version}` | – | NFR-08 |
+| POST | `/v1/auth/register` | `{email, password (8–128)}` | 201 `UserOut {id, email}` | 409, 422 | FR-01 |
+| POST | `/v1/auth/login` | `{email, password}` | 200 `{access_token, token_type, expires_in}` | 401, 422 | FR-01 |
+| GET | `/v1/auth/me` | – | 200 `UserOut` | 401 | FR-01 |
+| GET | `/v1/collections` | `?limit&offset` | 200 `Page[CollectionOut]` | 401, 422 | FR-06 |
+| POST | `/v1/collections` | `{name, description?}` | 201 `CollectionOut` | 401, 422 | FR-06 |
+| DELETE | `/v1/collections/{collection_id}` | – | 204 | 401, 404, 422 | FR-06 |
+| POST | `/v1/collections/{collection_id}/documents` | multipart `file` | 202 `DocumentOut` | 401, 404, 413, 415, 422 | FR-02 |
+| GET | `/v1/collections/{collection_id}/documents` | `?limit&offset` | 200 `Page[DocumentOut]` | 401, 404, 422 | FR-02 |
+| GET | `/v1/documents/{document_id}` | – | 200 `DocumentOut` | 401, 404, 422 | FR-02 |
+| GET | `/v1/chunks/{chunk_id}` | – | 200 `ChunkOut {id, document_id, filename, page, section, text}` | 401, 404, 422 | FR-06 |
 | POST | `/v1/research` | `{question (10–2000), collection_id, web_search=false}` | 202 `{job_id, status}` | 401, 404, 422 | FR-03 |
-| GET | `/v1/research/{job_id}` | – | `{job_id, question, status, steps[], report_markdown, citations[], error, created_at, updated_at}` | 401, 404 | FR-04, FR-05 |
-| GET | `/v1/research?q=` | – | `[research]` | 401 | FR-08 (Should) |
-| POST | `/v1/research/{job_id}/cancel` · `/retry` | – | research / 202 | 401, 404 | FR-10 (Should) |
+| GET | `/v1/research/{job_id}` | – | 200 `ResearchOut` | 401, 404, 422 | FR-04, FR-05 |
+| GET | `/v1/research` | `?q&limit&offset` | 200 `Page[ResearchOut]` | 401, 422 | FR-08 (Should) |
+| POST | `/v1/research/{job_id}/cancel` | – | 200 `ResearchOut` | 401, 404, 409, 422 | FR-10 (Should) |
+| POST | `/v1/research/{job_id}/retry` | – | 202 `{job_id, status}` | 401, 404, 409, 422 | FR-10 (Should) |
 
-**Quy ước:**
-- Cột "Lỗi" là hành vi dự kiến, lấy từ ghi chú TODO trong router. `openapi.yaml` hiện mới khai báo 422 (validate tự động của FastAPI), các mã còn lại thêm vào khi implement ở Sprint 2.
-- Mọi endpoint, trừ `/health`, `/v1/auth/register` và `/v1/auth/login`, yêu cầu `Authorization: Bearer <JWT>`. Thiếu token hoặc token sai trả 401.
+Các FR không có endpoint riêng: FR-05 chạy trong worker, kết quả trả qua `GET /v1/research/{job_id}`. FR-07 áp dụng cho mọi endpoint (Mục 5.2). FR-11 là cờ `web_search` trong `POST /v1/research`. Bản nháp **chưa có** endpoint cho FR-09 (xuất báo cáo, Should) và FR-12 (đánh giá báo cáo, Could), vì repo chưa có route cho hai FR này. Contract của chúng sẽ bổ sung khi nhóm lên kế hoạch làm.
+
+### 5.2 Quy ước chung
+
+- Mọi endpoint nằm dưới `/v1`. Thay đổi phá vỡ contract phải có ADR và cập nhật OpenAPI trước khi code (Requirement 9.5).
+- Mọi endpoint, trừ `/health`, `/v1/auth/register` và `/v1/auth/login`, yêu cầu `Authorization: Bearer <JWT>`.
 - Dữ liệu của người khác trả **404 (không phải 403)**, để không lộ việc `id` đó có tồn tại.
-- Mọi response có header `X-Request-ID`.
+- Mọi response có header `X-Request-ID`. Client có thể tự gửi header này, nếu không API tự sinh.
+- Thời gian theo ISO 8601 UTC, `id` là UUID.
 
-**Ví dụ một phần tử `citations`** (kiểu `CitationOut`): `{"marker": "[1]", "document_id": "77c1…", "chunk_id": "c9e0…", "filename": "NIST.SP.800-53r5.pdf", "page": 18, "section": "AC-2 Account Management"}`. Báo cáo chứa marker `[n]`. Frontend dùng danh sách `citations` để hiển thị trích dẫn dạng `[tên tài liệu, trang/mục]` như FR-05 yêu cầu, và để gọi `GET /v1/chunks/{chunk_id}` khi người dùng bấm vào.
+### 5.3 Định dạng lỗi
+
+Mọi phản hồi không phải 2xx, kể cả lỗi validate của FastAPI và đường dẫn không tồn tại, đều có dạng (schema `ErrorResponse`):
+
+```json
+{"error": {"code": "not_found", "message": "Not found", "request_id": "3f2b9c1e8a7d4b0c9e1f2a3b4c5d6e7f"}}
+```
+
+| HTTP | `code` | Khi nào |
+|---|---|---|
+| 401 | `unauthorized` | Thiếu, sai hoặc hết hạn token. Đăng nhập sai email hay sai mật khẩu đều cùng một lỗi |
+| 404 | `not_found` | Tài nguyên không tồn tại hoặc thuộc người khác; route không tồn tại |
+| 409 | `conflict` | Email đã đăng ký; hủy tác vụ đã kết thúc; chạy lại tác vụ không ở trạng thái `failed` |
+| 413 | `payload_too_large` | File lớn hơn `MAX_UPLOAD_MB` (20 MB) |
+| 415 | `unsupported_media_type` | File không phải `.pdf`, `.docx`, `.md` |
+| 422 | `validation_error` | Body, query hoặc path sai kiểu hay vượt giới hạn. Có thêm `details: [{loc, msg, type}]` |
+| 500 | `internal_error` | Lỗi không lường trước. Log ghi kèm `request_id` |
+| 501 | `not_implemented` | Endpoint chưa làm (chỉ có trong giai đoạn scaffold) |
+
+Quy tắc:
+- `request_id` trùng với header `X-Request-ID`, để tra log khi người dùng báo lỗi.
+- Client xử lý theo `code`, không so sánh `message` (câu chữ có thể đổi).
+- `details` **không lặp lại giá trị người dùng gửi lên**, để không lộ mật khẩu vào log hay giao diện.
+- Cài đặt: `backend/app/api/errors.py` (exception handler cho toàn app). Router chỉ cần `raise HTTPException(...)`, hoặc `ApiError(409, "...", code="...")` khi cần mã riêng.
+- Thay đổi so với scaffold: lỗi không còn trường `detail` của FastAPI. `frontend/src/api/client.ts` đang đọc `body.detail` nên cần chuyển sang `body.error.message`. Việc này thuộc R4, không nằm trong PR backend.
+
+### 5.4 Phân trang
+
+Mọi endpoint trả danh sách nhận `?limit=` (1–100, mặc định 20) và `?offset=` (≥ 0, mặc định 0), và trả về:
+
+```json
+{"items": [ ... ], "total": 42, "limit": 20, "offset": 0}
+```
+
+`total` là tổng số phần tử khớp truy vấn, để frontend vẽ nút chuyển trang. Thứ tự đề xuất: mới nhất trước (`created_at` giảm dần), chốt khi implement. Nhóm chọn offset thay vì cursor vì đơn giản, và mỗi người dùng chỉ có vài chục đến vài trăm bản ghi.
+
+### 5.5 Request/response mẫu
+
+Mỗi schema trong `openapi.yaml` có sẵn ví dụ (`examples`), Swagger UI tại `http://localhost:8000/docs` hiển thị chúng. Các API chính:
+
+**Đăng nhập** – `POST /v1/auth/login`
+```json
+// request
+{"email": "an.nguyen@example.com", "password": "S3cure-pass"}
+// 200
+{"access_token": "eyJhbGciOiJIUzI1NiJ9...", "token_type": "bearer", "expires_in": 3600}
+```
+
+**Tải tài liệu** – `POST /v1/collections/{collection_id}/documents`
+```bash
+curl -X POST http://localhost:8000/v1/collections/5d1e7f20-3b4a-4c8d-8e9f-0a1b2c3d4e5f/documents \
+  -H "Authorization: Bearer $TOKEN" -F "file=@NIST.SP.800-53r5.pdf"
+```
+```json
+// 202
+{"id": "77c1a9e4-2f6b-4d3c-9b8a-1e2f3a4b5c6d", "collection_id": "5d1e7f20-3b4a-4c8d-8e9f-0a1b2c3d4e5f",
+ "filename": "NIST.SP.800-53r5.pdf", "size_bytes": 482133, "status": "queued", "error": null,
+ "created_at": "2026-11-20T09:15:00Z"}
+// 415
+{"error": {"code": "unsupported_media_type", "message": "Unsupported file type: .xlsx", "request_id": "3f2b9c1e..."}}
+```
+
+**Tạo tác vụ nghiên cứu** – `POST /v1/research`
+```json
+// request
+{"question": "NIST SP 800-53 yêu cầu gì về quản lý tài khoản người dùng?",
+ "collection_id": "5d1e7f20-3b4a-4c8d-8e9f-0a1b2c3d4e5f", "web_search": false}
+// 202
+{"job_id": "a4b5c6d7-e8f9-4a0b-9c1d-2e3f4a5b6c7d", "status": "queued"}
+```
+
+**Xem tác vụ và báo cáo** – `GET /v1/research/{job_id}`
+```json
+// 200
+{"job_id": "a4b5c6d7-...", "question": "NIST SP 800-53 yêu cầu gì về quản lý tài khoản người dùng?",
+ "status": "succeeded",
+ "steps": [{"name": "plan", "status": "done", "duration_ms": 812.4},
+           {"name": "retrieve", "status": "done", "duration_ms": 95.1}],
+ "report_markdown": "Tổ chức phải xác định các loại tài khoản được phép [1]...",
+ "citations": [{"marker": "[1]", "document_id": "77c1a9e4-...", "chunk_id": "c9e0f1a2-...",
+                "filename": "NIST.SP.800-53r5.pdf", "page": 18, "section": "AC-2 Account Management"}],
+ "error": null, "created_at": "2026-11-20T09:15:00Z", "updated_at": "2026-11-20T09:15:00Z"}
+```
+
+Báo cáo chứa marker `[n]`. Frontend dùng `citations` để hiển thị trích dẫn dạng `[tên tài liệu, trang/mục]` như FR-05 yêu cầu, và gọi `GET /v1/chunks/{chunk_id}` khi người dùng bấm vào.
 
 ## 6. Data model
 
@@ -377,7 +468,7 @@ Bảng dưới đây cho biết cách chứng minh từng yêu cầu. Test case 
 | Q3 | LLM | Đề xuất Gemini 3.5 Flash-Lite (ADR-0003, Proposed). Cấu hình đã có `LLM_PROVIDER=gemini` (Mục 9). Chờ mentor chốt | Mentor + R3 |
 | R1 | Một worker xử lý tuần tự làm tài liệu mới phải chờ tác vụ nghiên cứu | **Đã xử lý:** tách `worker-ingestion` và `worker-research` ngay ở v0 (Mục 3.1). Cần cập nhật `docker-compose.yml` ở Sprint 2 | R4 |
 | R2 | Worker chết giữa chừng, hoặc API chết sau khi ghi DB mà chưa enqueue: job bị kẹt | Xử lý bằng reconciler ở Mục 4.5, làm ở Sprint 2. Cập nhật mốc reaper trong ADR-0002 từ Sprint 3 sang Sprint 2 | R1 |
-| R3 | Requirement 9.5 yêu cầu **phân trang** cho mọi danh sách và **định dạng lỗi** `{"error": {"code", "message", "request_id"}}`. Scaffold hiện trả mảng trần và lỗi mặc định của FastAPI (`{"detail": ...}`) | Xử lý ở PR riêng của ERA-8 (cập nhật `openapi.yaml` và Mục 5) | R1 |
+| R3 | Requirement 9.5 yêu cầu **phân trang** cho mọi danh sách và **định dạng lỗi** `{"error": {"code", "message", "request_id"}}`. Scaffold trước đây trả mảng trần và lỗi mặc định của FastAPI (`{"detail": ...}`) | **Đã xử lý (ERA-8):** định dạng lỗi ở Mục 5.3, phân trang ở Mục 5.4, `openapi.yaml` sinh lại từ code. Frontend chuyển sang `body.error.message` (R4) | R1 + R4 |
 | R4 | Image backend không cài nhóm `embeddings` (sentence-transformers) | **Đã xử lý:** ERA-11 gọi embedding qua Gemini API bằng `google-genai`, thuộc nhóm `llm` mà image đã cài; không cần đưa model vào image | R2 |
 
 **ADR:** đã có `0001-record-architecture-decisions` và `0002-job-queue` (Proposed). Dự kiến tiếp theo: `0003-llm-provider`, `0004-embedding-model-and-dimension`, `0005-frontend-framework`, `0006-progress-updates-polling-vs-sse`.
