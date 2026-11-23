@@ -11,6 +11,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
+from app.api.errors import register_error_handlers
 from app.api.v1 import api_router
 from app.core.config import get_settings
 from app.core.logging import configure_logging, request_id_var
@@ -61,6 +62,7 @@ def create_app() -> FastAPI:
     def health() -> dict[str, str]:
         return {"status": "ok", "version": __version__}
 
+    register_error_handlers(app)
     app.include_router(api_router)
     return app
 

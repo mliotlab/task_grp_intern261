@@ -6,14 +6,18 @@ import uuid
 
 from fastapi import APIRouter, Depends, status
 
-from app.api.deps import get_current_user_id, not_implemented
+from app.api.deps import PageParams, get_current_user_id, not_implemented, page_params
+from app.api.errors import error_responses
+from app.schemas.common import Page
 from app.schemas.document import CollectionCreate, CollectionOut
 
-router = APIRouter(prefix="/collections", tags=["collections"])
+router = APIRouter(prefix="/collections", tags=["collections"], responses=error_responses(401, 422))
 
 
-@router.get("", response_model=list[CollectionOut])
-def list_collections(user_id: uuid.UUID = Depends(get_current_user_id)) -> list[CollectionOut]:
+@router.get("", response_model=Page[CollectionOut])
+def list_collections(
+    page: PageParams = Depends(page_params), user_id: uuid.UUID = Depends(get_current_user_id)
+) -> Page[CollectionOut]:
     """TODO(FR-07): only the caller's collections."""
     raise not_implemented("FR-06")
 
@@ -25,7 +29,9 @@ def create_collection(
     raise not_implemented("FR-06")
 
 
-@router.delete("/{collection_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{collection_id}", status_code=status.HTTP_204_NO_CONTENT, responses=error_responses(404)
+)
 def delete_collection(
     collection_id: uuid.UUID, user_id: uuid.UUID = Depends(get_current_user_id)
 ) -> None:
