@@ -12,7 +12,7 @@
 
 ### 1.1 Bối cảnh
 
-Nhân viên trong doanh nghiệp thường mất nhiều giờ để trả lời một câu hỏi cần đọc nhiều tài liệu nội bộ: quy trình, báo cáo kỹ thuật, biên bản họp, tài liệu sản phẩm. Các *research agent* dựa trên LLM có thể tự chia câu hỏi thành các câu hỏi con, tìm tài liệu liên quan, đọc và tổng hợp thành báo cáo có trích dẫn, giúp rút ngắn thời gian này
+Nhân viên trong doanh nghiệp thường mất nhiều giờ để trả lời một câu hỏi cần đọc nhiều tài liệu nội bộ: quy trình, báo cáo kỹ thuật, biên bản họp, tài liệu sản phẩm. Các *research agent* dựa trên LLM có thể tự chia câu hỏi thành các câu hỏi con, tìm tài liệu liên quan, đọc và tổng hợp thành báo cáo có trích dẫn, giúp rút ngắn thời gian này.
 
 Đề tài xây dựng một nền tảng như vậy với trọng tâm *software engineering*: kiến trúc nhiều service, xử lý tác vụ dài bất đồng bộ qua hàng đợi, API contract, xác thực người dùng, giao diện web, kiểm thử nhiều tầng và CI/CD. Thành phần AI được giữ đơn giản và đo lường được.
 
@@ -102,7 +102,7 @@ User stories được viết theo mẫu “Là [persona], tôi muốn [hành đ�
 
 **Acceptance Criteria:**
 
-- **Given** người dùng có `job_id`, **When** họ truy vấn `GET /v1/research/{id}`, **Then** API trả về trạng thái thuộc một trong các giá trị `queued`, `running`, `succeeded`, `failed` hoặc `cancelled` cùng các bước đã hoàn thành.
+- **Given** người dùng có `job_id`, **When** họ truy vấn `GET /v1/research/{id}`, **Then** API trả về trạng thái thuộc một trong các giá trị `queued`, `running`, `succeeded` hoặc `failed` (thêm `cancelled` cho FR-10 khi người dùng hủy tác vụ, xem US-09) cùng các bước đã hoàn thành.
 - **Given** một tác vụ đang được xử lý, **When** người dùng mở màn hình theo dõi, **Then** giao diện cập nhật tiến trình bằng polling hoặc SSE.
 - **Given** tác vụ đã kết thúc, **When** người dùng xem lại trạng thái, **Then** giao diện thể hiện trạng thái kết thúc tương ứng là `succeeded`, `failed` hoặc `cancelled`.
 
@@ -297,8 +297,7 @@ Requirement Specification quy định bốn vai trò chính và trách nhiệm v
 
 Các câu hỏi dưới đây chưa được chốt trong Requirement Specification hoặc cần nhóm xác nhận trước/khi hoàn thiện Design Doc và OpenAPI contract:
 
-1. **LLM cụ thể:** Model và cấu hình LLM cần được chốt trong Sprint 1 và ghi ADR. Trạng thái: nhóm đề xuất Gemini 3.5 Flash-Lite qua Gemini API Free Tier; ADR-0003
-đang Proposed, chờ mentor chốt.
+1. **LLM cụ thể:** Model và cấu hình LLM cần được chốt trong Sprint 1 và ghi ADR. Trạng thái: nhóm đề xuất Gemini 3.5 Flash-Lite qua Gemini API Free Tier; ADR-0003 đang Proposed, chờ mentor chốt.
 2. **Embedding model:** Sẽ dùng model embedding đa ngôn ngữ nào? Requirement Specification mới nêu yêu cầu model đa ngôn ngữ, nhóm đề xuất Gemini-embedding-2. Trạng thái: chờ mentor chốt; Design Doc chờ ADR-0004 sau spike RAG.
 3. **Bộ tài liệu:** Danh sách 50–100 tài liệu cụ thể đã được mentor duyệt chưa? Trạng thái: mentor đã đồng ý chủ đề NIST SP 800; nhóm gửi danh sách tài liệu (mã số, phiên bản, link, giấy phép) để mentor duyệt, sau đó cập nhật Mục 8.1.
 4. **Thống nhất ý chính tham chiếu:** Theo Requirement Specification, R3 phụ trách tập 30 câu hỏi đánh giá. Cần thống nhất cách xác định và duyệt chéo ý chính tham chiếu cho từng câu (ai duyệt, tiêu chí thế nào là đủ ý) trước khi chấm NFR-02.
