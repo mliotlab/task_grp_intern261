@@ -9,7 +9,7 @@ This directory stores the raw **SKU-110K** dataset and the deterministic YOLO-fo
 - **Authors' repository:** <https://github.com/eg4000/SKU110K_CVPR19>
 - **Domain:** Densely packed retail store shelves captured from diverse angles, lighting conditions, and store layouts.
 - **Full dataset size:** 11,743 images total (**8,219** train / **588** val / **2,936** test), single object class (`object`, mapped to class `0: product` in this project).
-- **Project subset (`sku110k-subset-v1`, `seed: 2026`):** **1,000** train / **200** val / **200** test images defined in [`../training/configs/data_subset.yaml`](../training/configs/data_subset.yaml).
+- **Project subset (`sku110k-shelf-v2`, `seed: 2026`):** **1,000** train / **200** val / **200** test curated retail-shelf images defined in [`../training/configs/data_subset.yaml`](../training/configs/data_subset.yaml) with curated exclusions in [`../training/configs/sku110k_excluded.csv`](../training/configs/sku110k_excluded.csv).
 
 ### License & Terms
 
