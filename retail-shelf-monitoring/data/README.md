@@ -92,7 +92,8 @@ The `annotations_{train,val,test}.csv` files have **no header row** and 8 comma-
 Once `data/raw/SKU110K_fixed/` is in place, run from `retail-shelf-monitoring/`:
 
 ```bash
-# 1. Build deterministic subset (1000 train / 200 val / 200 test, seed=2026)
+# 1. Build deterministic sku110k-shelf-v2 subset (1000 train / 200 val / 200 test, seed=2026)
+#    Automatically applies training/configs/sku110k_excluded.csv (193 excluded) and backfills.
 python training/scripts/prepare_subset.py --config training/configs/data_subset.yaml
 # or: make data
 
@@ -100,6 +101,8 @@ python training/scripts/prepare_subset.py --config training/configs/data_subset.
 python training/scripts/eda.py --data-dir data/sku110k_subset --out-md docs/reports/sku110k_eda.md --out-json docs/reports/sku110k_eda.json
 # or: make eda
 ```
+
+> **Verification (`sku110k-shelf-v2`):** Running `prepare_subset.py` reproduces the exact curated subset with `MANIFEST SHA-256`: `c18daf36f20b59c210c5a6265c65f024af26dd80ba80ce8215da01dc80fcf22d`.
 
 This generates:
 - YOLO-format images and labels under `data/sku110k_subset/{images,labels}/{train,val,test}/` (git-ignored)
