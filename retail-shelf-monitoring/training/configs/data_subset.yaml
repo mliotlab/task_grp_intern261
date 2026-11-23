@@ -1,8 +1,9 @@
 # SKU-110K subset definition. Changing anything here = new dataset version.
-dataset_version: sku110k-subset-v1
+dataset_version: sku110k-shelf-v2
 seed: 2026
 raw_dir: data/raw/SKU110K_fixed
 out_dir: data/sku110k_subset
+exclude_file: training/configs/sku110k_excluded.csv
 splits:
   train: 1000
   val: 200
