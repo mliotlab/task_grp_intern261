@@ -31,11 +31,14 @@ class Settings(BaseSettings):
     allowed_extensions: tuple[str, ...] = (".pdf", ".docx", ".md")
 
     # AI (FR-05)
-    llm_provider: Literal["mock", "openai", "ollama"] = "mock"
-    llm_model: str = "gpt-4o-mini"
+    llm_provider: Literal["mock", "openai", "ollama", "gemini"] = "mock"
+    llm_model: str = "gemini-3.5-flash-lite"
     llm_base_url: str | None = None
     llm_api_key: SecretStr | None = None
-    embedding_model: str = "intfloat/multilingual-e5-small"
+
+    gemini_api_key: SecretStr | None = None
+
+    embedding_model: str = "gemini-embedding-2"
     embedding_dim: int = 384
 
     # Jobs (NFR-04)
