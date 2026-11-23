@@ -191,3 +191,59 @@ def test_eda_reads_image_dimensions_when_missing_from_manifest(tmp_path: Path) -
     assert report["splits"]["val"]["image_resolution"]["height_px"]["median"] == pytest.approx(
         200.0
     )
+
+
+def test_select_split_with_exclusions_preserves_clean_base_and_backfills() -> None:
+    ids = [f"img_{i:02d}.jpg" for i in range(20)]
+    base = prepare_subset.sample_split(ids, 5, seed=42)
+    dropped = {base[1], base[3]}
+
+    selected = prepare_subset.select_split_with_exclusions(ids, 5, seed=42, excluded=dropped)
+    assert len(selected) == 5
+    # Clean base images remain in place; dropped slots are filled deterministically.
+    assert [img for img in base if img not in dropped] == selected[:3]
+    assert set(selected).isdisjoint(dropped)
+    # Order-independent and repeatable.
+    selected_rev = prepare_subset.select_split_with_exclusions(
+        list(reversed(ids)), 5, seed=42, excluded=dropped
+    )
+    assert selected == selected_rev
+
+
+def test_build_subset_with_exclude_file_prunes_stale_and_is_reproducible(tmp_path: Path) -> None:
+    raw_dir = tmp_path / "raw"
+    _create_synthetic_raw_dataset(raw_dir)
+    out_dir = tmp_path / "subset"
+    cfg = {
+        "dataset_version": "sku110k-shelf-test-v2",
+        "seed": 2026,
+        "splits": {"train": 3, "val": 2, "test": 2},
+    }
+
+    # Build initial subset without exclusions.
+    prepare_subset.build_subset(cfg, raw_dir=raw_dir, out_dir=out_dir)
+    initial_train = sorted(p.name for p in (out_dir / "images" / "train").glob("*.jpg"))
+    assert len(initial_train) == 3
+
+    # Exclude one image from initial train split and rebuild into same out_dir.
+    excluded_img = initial_train[0]
+    exclude_csv = tmp_path / "excluded.csv"
+    exclude_csv.write_text(
+        f"split,image,reason\ntrain,{excluded_img},manual_review\n", encoding="utf-8"
+    )
+
+    meta_rebuilt = prepare_subset.build_subset(
+        cfg, raw_dir=raw_dir, out_dir=out_dir, exclude_file=exclude_csv
+    )
+    rebuilt_train = sorted(p.name for p in (out_dir / "images" / "train").glob("*.jpg"))
+    assert len(rebuilt_train) == 3
+    assert excluded_img not in rebuilt_train
+    assert not (out_dir / "labels" / "train" / f"{Path(excluded_img).stem}.txt").exists()
+
+    # Fresh build into a clean directory must match bit-for-bit.
+    fresh_dir = tmp_path / "fresh"
+    meta_fresh = prepare_subset.build_subset(
+        cfg, raw_dir=raw_dir, out_dir=fresh_dir, exclude_file=exclude_csv
+    )
+    assert meta_fresh["manifest_sha256"] == meta_rebuilt["manifest_sha256"]
+    assert (fresh_dir / "MANIFEST.csv").read_bytes() == (out_dir / "MANIFEST.csv").read_bytes()
