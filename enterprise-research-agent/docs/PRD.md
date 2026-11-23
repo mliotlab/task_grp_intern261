@@ -14,7 +14,7 @@
 
 Nhân viên trong doanh nghiệp thường mất nhiều giờ để trả lời một câu hỏi cần đọc nhiều tài liệu nội bộ: quy trình, báo cáo kỹ thuật, biên bản họp, tài liệu sản phẩm. Các *research agent* dựa trên LLM có thể tự chia câu hỏi thành các câu hỏi con, tìm tài liệu liên quan, đọc và tổng hợp thành báo cáo có trích dẫn, giúp rút ngắn thời gian này
 
-Đề tài xây dựng một nền tảng như vậyvới trọng tâm *software engineering*: kiến trúc nhiều service, xử lý tác vụ dài bất đồng bộ qua hàng đợi, API contract, xác thực người dùng, giao diện web, kiểm thử nhiều tầng và CI/CD. Thành phần AI được giữ đơn giản và đo lường được.
+Đề tài xây dựng một nền tảng như vậy với trọng tâm *software engineering*: kiến trúc nhiều service, xử lý tác vụ dài bất đồng bộ qua hàng đợi, API contract, xác thực người dùng, giao diện web, kiểm thử nhiều tầng và CI/CD. Thành phần AI được giữ đơn giản và đo lường được.
 
 ### 1.2 Vấn đề cần giải quyết
 
@@ -102,9 +102,9 @@ User stories được viết theo mẫu “Là [persona], tôi muốn [hành đ�
 
 **Acceptance Criteria:**
 
-- **Given** người dùng có `job_id`, **When** họ truy vấn `GET /v1/research/{id}`, **Then** API trả về trạng thái thuộc một trong các giá trị `queued`, `running`, `succeeded` hoặc `failed` cùng các bước đã hoàn thành.
+- **Given** người dùng có `job_id`, **When** họ truy vấn `GET /v1/research/{id}`, **Then** API trả về trạng thái thuộc một trong các giá trị `queued`, `running`, `succeeded`, `failed` hoặc `cancelled` cùng các bước đã hoàn thành.
 - **Given** một tác vụ đang được xử lý, **When** người dùng mở màn hình theo dõi, **Then** giao diện cập nhật tiến trình bằng polling hoặc SSE.
-- **Given** tác vụ đã kết thúc, **When** người dùng xem lại trạng thái, **Then** giao diện thể hiện trạng thái kết thúc tương ứng là `succeeded` hoặc `failed`.
+- **Given** tác vụ đã kết thúc, **When** người dùng xem lại trạng thái, **Then** giao diện thể hiện trạng thái kết thúc tương ứng là `succeeded`, `failed` hoặc `cancelled`.
 
 ### US-05 – Tạo báo cáo có cấu trúc và trích dẫn
 
@@ -158,7 +158,7 @@ User stories được viết theo mẫu “Là [persona], tôi muốn [hành đ�
 
 **Acceptance Criteria:**
 
-- **Given** một tác vụ đang chạy, **When** người dùng yêu cầu hủy tác vụ, **Then** hệ thống xử lý yêu cầu hủy bất đồng bộ để dừng quá trình xử lý; sau khi dừng, tác vụ được ghi nhận ở trạng thái `failed` vì không hoàn thành.
+- **Given** một tác vụ đang chạy, **When** người dùng yêu cầu hủy tác vụ, **Then** hệ thống xử lý yêu cầu hủy bất đồng bộ để dừng quá trình xử lý; sau khi dừng, tác vụ được ghi nhận ở trạng thái `cancelled` vì đã hủy.
 - **Given** một tác vụ đã ở trạng thái `failed`, **When** người dùng yêu cầu chạy lại, **Then** hệ thống cho phép khởi chạy lại tác vụ lỗi.
 
 ### US-10 – Bật/tắt tìm kiếm web cho tác vụ
@@ -200,7 +200,7 @@ Các yêu cầu dưới đây được tổng hợp từ Mục 3.1 của Require
 | FR-11 | Tool tìm kiếm web (bật/tắt theo tác vụ), nguồn web được đánh dấu riêng trong báo cáo. | Could | US-10 |
 | FR-12 | Người dùng đánh giá báo cáo (hữu ích / không hữu ích, kèm ghi chú) để bổ sung tập đánh giá. | Could | US-11 |
 
-**Quy ước ưu tiên MoSCoW:**: Must bắt buộc có trong bản phát hành v1.0.0; Should nên có, chỉ bỏ khi được mentor đồng ý; Could làm nếu còn thời gian. Mỗi yêu cầu phải được truy vết tới issue trên board và tới test case tương ứng.
+**Quy ước ưu tiên MoSCoW:** Must bắt buộc có trong bản phát hành v1.0.0; Should nên có, chỉ bỏ khi được mentor đồng ý; Could làm nếu còn thời gian. Mỗi yêu cầu phải được truy vết tới issue trên board và tới test case tương ứng.
 
 ## 5. Yêu cầu phi chức năng (Non-functional Requirements)
 
@@ -252,8 +252,8 @@ Ngoài ra, hệ thống sử dụng bộ tài liệu công khai hoặc dữ li�
 
 ### 8.1 Giả định và ràng buộc
 
-1. **LLM:** Sử dụng API Gemini 3.5 Flash-Lite qua Gemini API Free Tier. Lựa chọn cuối cùng được chốt trong Sprint 1 và ghi nhận bằng ADR 0003.
-2. **Bộ tài liệu:** Nhóm chọn 50–100 tài liệu công khai cùng một chủ đề NIST SP-800.
+1. **LLM:** Đề xuất dùng Gemini 3.5 Flash-Lite qua Gemini API Free Tier. Lựa chọn này chưa chốt: ADR-0003 đang ở trạng thái Proposed, chờ mentor duyệt.
+2. **Bộ tài liệu:** 50–100 tài liệu công khai thuộc chủ đề NIST SP 800. Mentor đã đồng ý chủ đề; danh sách tài liệu cụ thể đang chờ mentor duyệt.
 3. **Tập đánh giá:** Nhóm tự xây dựng tập gồm 30 câu hỏi nghiên cứu; mỗi câu có danh sách ý chính tham chiếu và tài liệu nguồn.
 4. **Dữ liệu:** Chỉ dùng dữ liệu công khai hoặc dữ liệu giả lập do nhóm tạo; không dùng dữ liệu thật của khách hàng hoặc dữ liệu cá nhân.
 5. **Secret:** Không commit API key, mật khẩu hoặc secret lên repository. Dùng `.env` (không commit) và `.env.example` (có commit).
@@ -262,11 +262,11 @@ Ngoài ra, hệ thống sử dụng bộ tài liệu công khai hoặc dữ li�
 
 ### 8.2 Phụ thuộc
 
-- Mentor cấp quyền sử dụng LLM API hoặc xác nhận lựa chọn chạy local qua Ollama.
-- Mentor review và duyệt bộ tài liệu công khai do nhóm lựa chọn.
+- Mentor chốt lựa chọn LLM qua ADR-0003 (đề xuất hiện tại ở Mục 8.1).
+- Mentor duyệt danh sách 50–100 tài liệu NIST SP 800 do nhóm gửi (mã số, phiên bản, link, giấy phép).
 - Nhóm xây dựng tập đánh giá 30 câu hỏi cùng ý chính tham chiếu và tài liệu nguồn.
 - Nhóm thống nhất công nghệ cụ thể và các quyết định kiến trúc trong Sprint 1–2 thông qua Design Doc/OpenAPI/ADR.
-- Repo, GitHub Projects, Pull Request workflow và CI là nền tảng để theo dõi yêu cầu, kiểm thử và review tài liệu.
+- Repo GitHub (Pull Request workflow, CI) và Jira (board theo dõi issue và sprint) là nền tảng để theo dõi yêu cầu, kiểm thử và review tài liệu.
 
 ### 8.3 Rủi ro
 
@@ -297,11 +297,15 @@ Requirement Specification quy định bốn vai trò chính và trách nhiệm v
 
 Các câu hỏi dưới đây chưa được chốt trong Requirement Specification hoặc cần nhóm xác nhận trước/khi hoàn thiện Design Doc và OpenAPI contract:
 
-1. **Tập đánh giá:** Ai phụ trách xây dựng 30 câu hỏi, ý chính tham chiếu và tài liệu nguồn; tiêu chí thống nhất đáp án tham chiếu sẽ được tổ chức thế nào?
-2. **Chi tiết bộ sưu tập và tài liệu:** Các thao tác quản lý cụ thể (ví dụ đổi tên/xóa bộ sưu tập hoặc xóa tài liệu) chưa được mô tả chi tiết trong FR; cần xác nhận trước khi chốt API/UI.
-3. **Chính sách tài khoản:** Chính sách mật khẩu, thời hạn JWT cụ thể và quy trình xử lý khi token hết hạn chưa được định lượng trong Requirement Specification.
-4. **Hủy và chạy lại tác vụ:** Quy tắc xử lý khi yêu cầu hủy đến sau khi worker đã bắt đầu một bước, cũng như cách liên kết lần chạy lại với báo cáo cũ, cần được thống nhất khi thiết kế.
-5. **Tìm kiếm web và phản hồi:** Phạm vi tool tìm kiếm web, cách lưu ghi chú đánh giá và cách bổ sung feedback vào tập đánh giá cần được xác nhận nếu thực hiện FR-11/FR-12 (mức Could).
+1. **LLM cụ thể:** Model và cấu hình LLM cần được chốt trong Sprint 1 và ghi ADR. Trạng thái: nhóm đề xuất Gemini 3.5 Flash-Lite qua Gemini API Free Tier; ADR-0003
+đang Proposed, chờ mentor chốt.
+2. **Embedding model:** Sẽ dùng model embedding đa ngôn ngữ nào? Requirement Specification mới nêu yêu cầu model đa ngôn ngữ, nhóm đề xuất Gemini-embedding-2. Trạng thái: chờ mentor chốt; Design Doc chờ ADR-0004 sau spike RAG.
+3. **Bộ tài liệu:** Danh sách 50–100 tài liệu cụ thể đã được mentor duyệt chưa? Trạng thái: mentor đã đồng ý chủ đề NIST SP 800; nhóm gửi danh sách tài liệu (mã số, phiên bản, link, giấy phép) để mentor duyệt, sau đó cập nhật Mục 8.1.
+4. **Thống nhất ý chính tham chiếu:** Theo Requirement Specification, R3 phụ trách tập 30 câu hỏi đánh giá. Cần thống nhất cách xác định và duyệt chéo ý chính tham chiếu cho từng câu (ai duyệt, tiêu chí thế nào là đủ ý) trước khi chấm NFR-02.
+5. **Chi tiết bộ sưu tập và tài liệu:** Các thao tác quản lý cụ thể (ví dụ đổi tên/xóa bộ sưu tập hoặc xóa tài liệu) chưa được mô tả chi tiết trong FR; cần xác nhận trước khi chốt API/UI.
+6. **Chính sách tài khoản:** Chính sách mật khẩu, thời hạn JWT cụ thể và quy trình xử lý khi token hết hạn chưa được định lượng trong Requirement Specification.
+7. **Hủy và chạy lại tác vụ:** Quy tắc xử lý khi yêu cầu hủy đến sau khi worker đã bắt đầu một bước, cũng như cách liên kết lần chạy lại với báo cáo cũ, cần được thống nhất khi thiết kế.
+8. **Tìm kiếm web và phản hồi:** Phạm vi tool tìm kiếm web, cách lưu ghi chú đánh giá và cách bổ sung feedback vào tập đánh giá cần được xác nhận nếu thực hiện FR-11/FR-12 (mức Could).
 
 ---
 
@@ -309,5 +313,5 @@ Các câu hỏi dưới đây chưa được chốt trong Requirement Specificat
 
 | Người review | Trạng thái | Nhận xét / ngày review |
 |---|---|---|
-| Nhóm SE-AI-02 | Pending | Chờ nhóm review và xác nhận. |
-| Mentor – Trần Phan Đăng Khôi | Pending | Chờ mentor review/approve theo quy trình tài liệu của dự án. |
+| Nguyễn Hoàng Nhân (R3) | Đã review | Review PR #27. |
+| Mentor – Trần Phan Đăng Khôi | Approve | Chờ mentor review/approve theo quy trình tài liệu của dự án. |
