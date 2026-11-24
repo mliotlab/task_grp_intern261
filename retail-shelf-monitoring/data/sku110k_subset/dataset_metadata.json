@@ -1,24 +1,28 @@
 {
-  "dataset_version": "sku110k-subset-v1",
+  "dataset_version": "sku110k-shelf-v2",
   "seed": 2026,
   "splits": {
     "train": {
       "images": 1000,
-      "boxes": 148029,
-      "skipped_rows": 0
+      "boxes": 145470,
+      "skipped_rows": 0,
+      "excluded_images": 123
     },
     "val": {
       "images": 200,
-      "boxes": 30476,
-      "skipped_rows": 0
+      "boxes": 29533,
+      "skipped_rows": 0,
+      "excluded_images": 40
     },
     "test": {
       "images": 200,
-      "boxes": 29379,
-      "skipped_rows": 0
+      "boxes": 28870,
+      "skipped_rows": 0,
+      "excluded_images": 30
     }
   },
   "total_images": 1400,
-  "total_boxes": 207884,
-  "manifest_sha256": "a8cb3cd88cbd1d8daed2edd608db34fafd6a08eec2157d49b71c1ddba176d8ca"
+  "total_boxes": 203873,
+  "manifest_sha256": "c18daf36f20b59c210c5a6265c65f024af26dd80ba80ce8215da01dc80fcf22d",
+  "exclude_file_sha256": "550a63ab4132ea7addf1ee05e5cb4cce4ca2a68ffe147c2487d442855fbbc721"
 }

@@ -1,130 +1,153 @@
-"""Embedding service: Gemini (API) or local multilingual-e5 (sentence-transformers)."""
+"""Gemini embedding with batching and conservative rate limiting."""
 
 from __future__ import annotations
 
 import logging
-import re
+import threading
 import time
-from functools import lru_cache
+from collections import deque
 
-from langchain_core.embeddings import Embeddings
+from google import genai
+from google.genai import types
+from google.genai.errors import APIError
 
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
 BATCH_SIZE = 32
-MAX_RETRIES = 8
+MAX_TEXTS_PER_MINUTE = 80
+RATE_WINDOW_SECONDS = 60.0
+MAX_RETRIES = 2
+
+# Track embedding inputs within a rolling 60-second window.
+# This limiter is local to the current Python process.
+_embedding_timestamps: deque[float] = deque()
+_embedding_lock = threading.Lock()
 
 
-# ============================================================
-# Gemini
-# ============================================================
+def _reserve_embedding_quota(text_count: int) -> None:
+    """Wait until this process has enough embedding quota."""
+
+    if text_count > MAX_TEXTS_PER_MINUTE:
+        raise ValueError("Requested batch exceeds the local embedding quota.")
+
+    while True:
+        with _embedding_lock:
+            now = time.monotonic()
+
+            while _embedding_timestamps and now - _embedding_timestamps[0] >= RATE_WINDOW_SECONDS:
+                _embedding_timestamps.popleft()
+
+            if len(_embedding_timestamps) + text_count <= MAX_TEXTS_PER_MINUTE:
+                _embedding_timestamps.extend([now] * text_count)
+                return
+
+            wait_seconds = _embedding_timestamps[0] + RATE_WINDOW_SECONDS - now
+
+        logger.info(
+            "Embedding quota reached; waiting %.1f seconds",
+            wait_seconds,
+        )
+        time.sleep(max(wait_seconds, 0.1))
 
 
-@lru_cache(maxsize=1)
-def get_embeddings() -> Embeddings:
-    """Gemini embedding model (cached)."""
+def _get_retry_delay(exc: APIError) -> float:
+    """Read RetryInfo.retryDelay from a Gemini API error."""
 
-    from langchain_google_genai import GoogleGenerativeAIEmbeddings
+    details = getattr(exc, "details", None)
+
+    if not isinstance(details, dict):
+        return 30.0
+
+    error = details.get("error", details)
+
+    for item in error.get("details", []):
+        if item.get("@type", "").endswith("RetryInfo"):
+            retry_delay = item.get("retryDelay", "")
+
+            if isinstance(retry_delay, str) and retry_delay.endswith("s"):
+                try:
+                    return float(retry_delay[:-1])
+                except ValueError:
+                    pass
+
+    return 30.0
+
+
+def embed_chunks(texts: list[str]) -> list[list[float]]:
+    """Generate one Gemini embedding per input text."""
+
+    if not texts:
+        return []
 
     settings = get_settings()
 
     if settings.gemini_api_key is None:
         raise ValueError("GEMINI_API_KEY is not configured.")
 
-    return GoogleGenerativeAIEmbeddings(
-        model=settings.embedding_model,
-        google_api_key=settings.gemini_api_key.get_secret_value(),
-        output_dimensionality=settings.embedding_dim,
-    )
+    client = genai.Client(api_key=settings.gemini_api_key.get_secret_value())
 
+    all_embeddings: list[list[float]] = []
 
-def _is_rate_limited(exc: Exception) -> bool:
-    msg = str(exc)
-    return "429" in msg or "RESOURCE_EXHAUSTED" in msg
+    for start in range(0, len(texts), BATCH_SIZE):
+        batch_texts = texts[start : start + BATCH_SIZE]
 
+        _reserve_embedding_quota(len(batch_texts))
 
-def _retry_delay(exc: Exception) -> float:
-    m = re.search(r"retry in ([\d.]+)s", str(exc))
-    return float(m.group(1)) + 2 if m else 60.0
+        contents = [types.Content(parts=[types.Part.from_text(text=text)]) for text in batch_texts]
 
+        for attempt in range(MAX_RETRIES + 1):
+            try:
+                response = client.models.embed_content(
+                    model=settings.embedding_model,
+                    contents=contents,
+                    config=types.EmbedContentConfig(output_dimensionality=settings.embedding_dim),
+                )
 
-def _gemini_batch(embeddings: Embeddings, batch: list[str]) -> list[list[float]]:
-    for attempt in range(1, MAX_RETRIES + 1):
-        try:
-            return embeddings.embed_documents(batch)
-        except Exception as exc:
-            if not _is_rate_limited(exc) or attempt == MAX_RETRIES:
-                raise
-            delay = _retry_delay(exc)
-            logger.warning("Embedding rate-limited, sleeping %.0fs (attempt %d)", delay, attempt)
-            time.sleep(delay)
-    raise RuntimeError("unreachable")
+                batch_embeddings = [
+                    [float(value) for value in embedding.values]
+                    for embedding in response.embeddings
+                ]
 
+                if len(batch_embeddings) != len(batch_texts):
+                    raise RuntimeError(
+                        "Chunk and embedding counts do not match: "
+                        f"{len(batch_texts)} inputs, "
+                        f"{len(batch_embeddings)} embeddings."
+                    )
 
-def _gemini_chunks(texts: list[str]) -> list[list[float]]:
-    embeddings = get_embeddings()
-    per_minute = get_settings().embedding_max_texts_per_minute
-    vectors: list[list[float]] = []
+                for embedding in batch_embeddings:
+                    if len(embedding) != settings.embedding_dim:
+                        raise RuntimeError(
+                            "Unexpected embedding dimension: "
+                            f"expected {settings.embedding_dim}, "
+                            f"got {len(embedding)}."
+                        )
 
-    for i in range(0, len(texts), BATCH_SIZE):
-        batch = texts[i : i + BATCH_SIZE]
-        started = time.monotonic()
-        vectors.extend(_gemini_batch(embeddings, batch))
+                all_embeddings.extend(batch_embeddings)
 
-        remaining = len(batch) * 60.0 / per_minute - (time.monotonic() - started)
-        if remaining > 0:
-            time.sleep(remaining)
+                logger.info(
+                    "Embedding batch completed",
+                    extra={
+                        "batch_size": len(batch_texts),
+                        "total_embedded": len(all_embeddings),
+                    },
+                )
 
-    return vectors
+                break
 
+            except APIError as exc:
+                if exc.code != 429 or attempt >= MAX_RETRIES:
+                    raise
 
-# ============================================================
-# Local (multilingual-e5)
-# ============================================================
+                retry_delay = _get_retry_delay(exc) + 1.0
 
+                logger.warning(
+                    "Gemini returned 429; retrying in %.1f seconds",
+                    retry_delay,
+                )
 
-@lru_cache(maxsize=1)
-def _local_model():
-    from sentence_transformers import SentenceTransformer
+                time.sleep(retry_delay)
 
-    return SentenceTransformer(get_settings().local_embedding_model)
-
-
-def _local_chunks(texts: list[str]) -> list[list[float]]:
-    vecs = _local_model().encode(
-        [f"passage: {t}" for t in texts],
-        batch_size=BATCH_SIZE,
-        normalize_embeddings=True,
-        show_progress_bar=False,
-    )
-    return vecs.tolist()
-
-
-def _local_query(text: str) -> list[float]:
-    return _local_model().encode(f"query: {text}", normalize_embeddings=True).tolist()
-
-
-# ============================================================
-# Public API
-# ============================================================
-
-
-def embed_chunks(texts: list[str]) -> list[list[float]]:
-    """Embed document chunks with the configured provider."""
-
-    if not texts:
-        return []
-
-    if get_settings().embedding_provider == "local":
-        return _local_chunks(texts)
-    return _gemini_chunks(texts)
-
-
-def embed_query(text: str) -> list[float]:
-    """Embed a retrieval query with the SAME provider used for ingestion."""
-
-    if get_settings().embedding_provider == "local":
-        return _local_query(text)
-    return get_embeddings().embed_query(text)
+    return all_embeddings

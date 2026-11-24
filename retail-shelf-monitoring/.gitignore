@@ -33,11 +33,16 @@ var/
 *.engine
 *.ckpt
 *.safetensors
+mobileclip*.ts
 *.tar.gz
 *.zip
 runs/
 mlruns/
 wandb/
+training/baseline/results/
+training/baseline/visuals/
+training/baseline/*.md
+!training/baseline/README.md
 
 # Datasets: never commit raw data, subset images, or YOLO label files.
 # Deterministic subset manifests and metadata may be tracked if generated.

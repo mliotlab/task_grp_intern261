@@ -38,6 +38,57 @@ def sample_split(image_ids: list[str], n: int, seed: int) -> list[str]:
     return rng.sample(sorted(image_ids), n)
 
 
+def load_excluded_ids(exclude_path: Path | None) -> dict[str, set[str]]:
+    """Load `(split, image)` exclusions from a CSV file with `split,image,...` columns."""
+    excluded: dict[str, set[str]] = defaultdict(set)
+    if exclude_path is None:
+        return excluded
+    if not exclude_path.is_file():
+        raise FileNotFoundError(f"Exclude CSV file not found: '{exclude_path}'")
+
+    with exclude_path.open("r", encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            split = (row.get("split") or "").strip()
+            image = (row.get("image") or "").strip()
+            if split and image:
+                excluded[split].add(image)
+    return dict(excluded)
+
+
+def build_candidate_queue(image_ids: list[str], base_n: int, seed: int) -> list[str]:
+    """Build deterministic priority queue: original `v1` sample followed by shuffled tail.
+
+    This preserves clean images already vetted in `v1` while ensuring deterministic backfill
+    for every excluded image when reproduced from raw annotations and `(seed, exclude_file)`.
+    """
+    sorted_ids = sorted(image_ids)
+    base_ids = sample_split(sorted_ids, base_n, seed)
+    base_set = set(base_ids)
+    tail_ids = [img_id for img_id in sorted_ids if img_id not in base_set]
+    random.Random(seed).shuffle(tail_ids)
+    return base_ids + tail_ids
+
+
+def select_split_with_exclusions(
+    image_ids: list[str],
+    n: int,
+    seed: int,
+    excluded: set[str] | None = None,
+) -> list[str]:
+    """Deterministically select `n` ids while skipping `excluded` via queue backfill."""
+    if not excluded:
+        return sample_split(image_ids, n, seed)
+
+    queue = build_candidate_queue(image_ids, base_n=n, seed=seed)
+    selected = [img_id for img_id in queue if img_id not in excluded]
+    if len(selected) < n:
+        raise ValueError(
+            f"Requires {n} images after exclusions, but only {len(selected)} valid images remain."
+        )
+    return selected[:n]
+
+
 def to_yolo_line(x1: float, y1: float, x2: float, y2: float, img_w: int, img_h: int) -> str:
     """Convert a pixel box to a YOLO label line: `class cx cy w h` normalised to [0, 1]."""
     cx = (x1 + x2) / 2 / img_w
@@ -141,14 +192,30 @@ def _sha256_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _prune_stale_files(images_dir: Path, labels_dir: Path, keep_names: set[str]) -> None:
+    """Remove files in `images_dir` and `labels_dir` that are not in `keep_names`."""
+    keep_stems = {Path(name).stem for name in keep_names}
+    for img_path in images_dir.iterdir():
+        if img_path.is_file() and img_path.name not in keep_names:
+            img_path.unlink()
+    for lbl_path in labels_dir.iterdir():
+        if lbl_path.is_file() and lbl_path.stem not in keep_stems:
+            lbl_path.unlink()
+
+
 def build_subset(
     cfg: dict[str, Any],
     raw_dir: Path | None = None,
     out_dir: Path | None = None,
+    exclude_file: Path | None = None,
 ) -> dict[str, Any]:
     """Generate deterministic train/val/test YOLO subset, labels, manifests, and metadata."""
     resolved_raw = raw_dir if raw_dir is not None else Path(cfg["raw_dir"])
     resolved_out = out_dir if out_dir is not None else Path(cfg["out_dir"])
+    cfg_exclude = cfg.get("exclude_file")
+    resolved_exclude = (
+        exclude_file if exclude_file is not None else (Path(cfg_exclude) if cfg_exclude else None)
+    )
     seed = int(cfg["seed"])
     dataset_version = str(cfg["dataset_version"])
     splits_cfg: dict[str, int] = cfg["splits"]
@@ -159,6 +226,7 @@ def build_subset(
             "See data/README.md for download and extraction instructions."
         )
 
+    excluded_by_split = load_excluded_ids(resolved_exclude)
     ordered_splits = [s for s in SPLIT_ORDER if s in splits_cfg] + [
         s for s in splits_cfg if s not in SPLIT_ORDER
     ]
@@ -177,7 +245,10 @@ def build_subset(
                 f"but only {len(by_image)} valid images found in '{csv_path}'."
             )
 
-        selected_ids = sample_split(list(by_image.keys()), target_count, seed)
+        split_excluded = excluded_by_split.get(split, set())
+        selected_ids = select_split_with_exclusions(
+            list(by_image.keys()), target_count, seed, excluded=split_excluded
+        )
         # Keep manifest and output order deterministic across runs.
         selected_ids_sorted = sorted(selected_ids)
 
@@ -185,6 +256,7 @@ def build_subset(
         labels_out = resolved_out / "labels" / split
         images_out.mkdir(parents=True, exist_ok=True)
         labels_out.mkdir(parents=True, exist_ok=True)
+        _prune_stale_files(images_out, labels_out, set(selected_ids_sorted))
 
         split_rows: list[dict[str, Any]] = []
         total_boxes = 0
@@ -193,7 +265,8 @@ def build_subset(
             boxes = by_image[image_name]
             src_img = find_image_path(resolved_raw, split, image_name)
             dst_img = images_out / image_name
-            shutil.copy2(src_img, dst_img)
+            if not dst_img.is_file() or dst_img.stat().st_size != src_img.stat().st_size:
+                shutil.copy2(src_img, dst_img)
 
             label_lines = [to_yolo_line(b.x1, b.y1, b.x2, b.y2, b.img_w, b.img_h) for b in boxes]
             label_path = labels_out / f"{Path(image_name).stem}.txt"
@@ -216,12 +289,13 @@ def build_subset(
             "images": len(split_rows),
             "boxes": total_boxes,
             "skipped_rows": skipped,
+            "excluded_images": len(split_excluded),
         }
 
     manifest_path = resolved_out / "MANIFEST.csv"
     _write_manifest(manifest_path, all_manifest_rows)
 
-    metadata = {
+    metadata: dict[str, Any] = {
         "dataset_version": dataset_version,
         "seed": seed,
         "splits": split_summaries,
@@ -229,6 +303,9 @@ def build_subset(
         "total_boxes": sum(s["boxes"] for s in split_summaries.values()),
         "manifest_sha256": _sha256_file(manifest_path),
     }
+    if resolved_exclude is not None:
+        metadata["exclude_file_sha256"] = _sha256_file(resolved_exclude)
+
     metadata_path = resolved_out / "dataset_metadata.json"
     with metadata_path.open("w", encoding="utf-8", newline="\n") as mf:
         json.dump(metadata, mf, indent=2)
@@ -242,6 +319,7 @@ def main() -> None:
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--raw-dir", type=Path, default=None)
     parser.add_argument("--out-dir", type=Path, default=None)
+    parser.add_argument("--exclude-file", type=Path, default=None)
     args = parser.parse_args()
 
     cfg = yaml.safe_load(args.config.read_text(encoding="utf-8"))
@@ -249,12 +327,15 @@ def main() -> None:
     out_dir = args.out_dir or Path(cfg["out_dir"])
     print(f"Building {cfg['dataset_version']} from {raw_dir} -> {out_dir} (seed={cfg['seed']})")
 
-    metadata = build_subset(cfg, raw_dir=args.raw_dir, out_dir=args.out_dir)
+    metadata = build_subset(
+        cfg, raw_dir=args.raw_dir, out_dir=args.out_dir, exclude_file=args.exclude_file
+    )
     for split, info in metadata["splits"].items():
         avg_boxes = info["boxes"] / info["images"] if info["images"] else 0.0
         print(
             f"  {split:<5}: {info['images']} images, {info['boxes']} boxes "
-            f"(mean {avg_boxes:.1f}/img, skipped {info['skipped_rows']} invalid rows)"
+            f"(mean {avg_boxes:.1f}/img, excluded {info['excluded_images']}, "
+            f"skipped {info['skipped_rows']} invalid rows)"
         )
     print(
         f"Done: {metadata['total_images']} images, {metadata['total_boxes']} boxes. "

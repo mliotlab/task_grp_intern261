@@ -5,7 +5,7 @@ help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
 
 install: ## Install backend (editable) + frontend deps
-	cd backend && $(PY) -m pip install -e ".[dev]"
+	cd backend && $(PY) -m pip install -e ".[dev,ingest,llm]"
 	cd frontend && npm ci
 
 lint: ## Lint backend + frontend

@@ -31,27 +31,10 @@ class Settings(BaseSettings):
     allowed_extensions: tuple[str, ...] = (".pdf", ".docx", ".md")
 
     # AI (FR-05)
-    # llm_provider: Literal["mock", "openai", "ollama", "gemini"] = "mock"
-    # llm_model: str = "gemini-3.5-flash-lite"
-    # llm_base_url: str | None = None
-    # llm_api_key: SecretStr | None = None
-    embedding_provider: Literal["gemini", "local"] = "gemini"
-
-    local_embedding_model: str = "intfloat/multilingual-e5-small"
-
-    embedding_max_texts_per_minute: int = 80
-    # INGESTION
-    chunk_strategy: Literal["baseline", "advanced"] = "advanced"
-    chunk_size: int = 1000
-    chunk_overlap: int = 150
-
-    @model_validator(mode="after")
-    def _check_chunk_params(self) -> Settings:
-        if self.chunk_size <= 0:
-            raise ValueError("CHUNK_SIZE must be > 0")
-        if not 0 <= self.chunk_overlap < self.chunk_size:
-            raise ValueError("CHUNK_OVERLAP must be >= 0 and < CHUNK_SIZE")
-        return self
+    llm_provider: Literal["mock", "openai", "ollama", "gemini"] = "mock"
+    llm_model: str = "gemini-3.5-flash-lite"
+    llm_base_url: str | None = None
+    llm_api_key: SecretStr | None = None
 
     gemini_api_key: SecretStr | None = None
 
