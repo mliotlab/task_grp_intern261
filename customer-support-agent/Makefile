@@ -23,7 +23,7 @@ orders: ## Generate ~100 synthetic orders into var/orders.json
 	$(PY) scripts/generate_orders.py --n 100 --seed 42 --out var/orders.json
 
 ingest: ## Chunk + embed kb/ into the vector store
-	$(PY) scripts/ingest_kb.py
+	$(PY) -m scripts.ingest_kb
 
 run: ## Run the Chat API locally with auto-reload
 	uvicorn services.chat_api.main:app --reload --port 8000

@@ -21,7 +21,7 @@ dependencies = [
 
 [project.optional-dependencies]
 # Retrieval stack (FR-02, FR-03). Kept optional so unit tests and CI stay light.
-rag = ["chromadb>=0.5", "sentence-transformers>=3.0", "pypdf>=4.2"]
+rag = ["numpy>=1.26", "sentence-transformers>=3.0", "pypdf>=4.2"]
 # OpenAI-compatible client: works with the mentor-provided API and with Ollama (/v1 endpoint).
 llm = ["openai>=1.40"]
 ui = ["streamlit>=1.38"]

@@ -29,4 +29,4 @@ class MockLLM:
         if self._script:
             return self._script.popleft()
         prompt_tokens = sum(len(m.content.split()) for m in messages)
-        return LLMResponse(content=self._default, usage=Usage(prompt_tokens, 3))
+        return LLMResponse(content=self._default, usage=Usage(prompt_tokens, 3, available=True))

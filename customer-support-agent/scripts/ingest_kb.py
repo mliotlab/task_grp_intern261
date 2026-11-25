@@ -1,8 +1,4 @@
-"""Chunk and index the knowledge base (FR-02).
-
-python scripts/ingest_kb.py            # build / refresh the vector store
-python scripts/ingest_kb.py --dry-run  # only show how documents are chunked
-"""
+"""Build or inspect the policy index: python -m scripts.ingest_kb [--dry-run]."""
 
 from __future__ import annotations
 
@@ -16,20 +12,26 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
-
     settings = get_settings()
     params = settings.agent_params()["retrieval"]
-    docs = load_documents(settings.kb_dir)
-    total = 0
-    for doc in docs:
-        chunks = chunk_text(doc, params["chunk_size"], params["chunk_overlap"])
-        total += len(chunks)
-        print(f"{doc.doc_id:<40} {len(chunks):>3} chunks")
-    print(f"{len(docs)} documents, {total} chunks")
-
-    if not args.dry_run:
-        n = build_index(settings.kb_dir, settings.vector_store_dir, settings.embedding_model)
-        print(f"Indexed {n} chunks into {settings.vector_store_dir}")
+    if args.dry_run:
+        docs = load_documents(settings.kb_dir)
+        total = 0
+        for doc in docs:
+            count = len(chunk_text(doc, params["chunk_size"], params["chunk_overlap"]))
+            total += count
+            print(f"{doc.doc_id:<40} {count:>3} chunks")
+        print(f"{len(docs)} documents, {total} chunks")
+        return
+    count = build_index(
+        settings.kb_dir,
+        settings.vector_store_dir,
+        settings.embedding_model,
+        embedding_revision=settings.embedding_revision or None,
+        chunk_size=params["chunk_size"],
+        overlap=params["chunk_overlap"],
+    )
+    print(f"Indexed {count} chunks into {settings.vector_store_dir}")
 
 
 if __name__ == "__main__":

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from support_agent.config import Settings
 from support_agent.llm.base import LLMClient
+from support_agent.llm.compatible import CompatibleLLM
 from support_agent.llm.mock import MockLLM
 
 
@@ -11,8 +12,17 @@ def create_llm(settings: Settings) -> LLMClient:
     if settings.llm_provider == "mock":
         return MockLLM()
 
-    # TODO(Sprint 1, ADR-0002): implement an OpenAI-compatible client (`pip install -e ".[llm]"`).
-    #   - The same client works for the mentor API and for Ollama (base_url=http://<host>:11434/v1).
-    #   - Map `Message` / tool schemas to the provider format and back to `LLMResponse`.
-    #   - Return token usage so `TurnTrace.add_usage` can estimate cost (NFR-07).
-    raise NotImplementedError(f"LLM provider '{settings.llm_provider}' is not implemented yet")
+    api_key = settings.llm_api_key.get_secret_value() if settings.llm_api_key else None
+    if settings.llm_provider == "openai" and not api_key:
+        raise ValueError("LLM_API_KEY is required for the configured API provider.")
+    default_url = (
+        "http://localhost:11434/v1"
+        if settings.llm_provider == "ollama"
+        else "https://api.openai.com/v1"
+    )
+    return CompatibleLLM(
+        settings.llm_model,
+        settings.llm_base_url or default_url,
+        api_key,
+        settings.llm_timeout_seconds,
+    )
