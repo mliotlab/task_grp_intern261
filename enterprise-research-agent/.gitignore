@@ -1,0 +1,6 @@
+
+# Local ingestion artifacts
+/backend/ingest.log
+/backend/storage/
+/eval/datasets/v0/corpus/
+/eval/reports/retrieval_*.json
