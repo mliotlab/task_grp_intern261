@@ -6,7 +6,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import SecretStr, model_validator
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -38,8 +38,15 @@ class Settings(BaseSettings):
 
     gemini_api_key: SecretStr | None = None
 
-    embedding_model: str = "gemini-embedding-2"
-    embedding_dim: int = 384
+    # Embedding (ERA-11)
+    embedding_provider: Literal["gemini", "local"] = "gemini"
+    embedding_model: str = "gemini-embedding-2"  # gemini only
+    local_embedding_model: str = "intfloat/multilingual-e5-small"
+    embedding_dim: int = 384  # must match Vector(384)
+    embedding_max_texts_per_minute: int = 80  # gemini only
+
+    # Jobs (NFR-04)
+    job_max_retries: int = 2
 
     # Jobs (NFR-04)
     job_max_retries: int = 2
