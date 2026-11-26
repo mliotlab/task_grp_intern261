@@ -1,36 +1,95 @@
 from __future__ import annotations
 
+import json
+from unittest.mock import Mock
+
 import pytest
 
-from support_agent.llm import LLMResponse, MockLLM
+from support_agent.llm import LLMResponse, MockLLM, Usage
+from support_agent.llm.base import LLMError
 from support_agent.memory import InMemorySessionStore
 from support_agent.orchestrator import AgentOrchestrator
-from support_agent.retrieval.retriever import NullRetriever
+from support_agent.retrieval.retriever import RetrievedChunk
 from support_agent.schemas import ChatRequest
-from support_agent.tools.defaults import default_registry
+from support_agent.tools.registry import ToolRegistry
+
+EVIDENCE = "Free shipping from 300,000 VND."
 
 
-def _orchestrator(llm: MockLLM) -> AgentOrchestrator:
+def _orchestrator(llm: MockLLM, chunks: list[RetrievedChunk] | None = None) -> AgentOrchestrator:
+    registry = ToolRegistry()
     return AgentOrchestrator(
         llm=llm,
-        retriever=NullRetriever(),
-        tools=default_registry(),
+        retriever=Mock(search=Mock(return_value=chunks or [])),
+        tools=registry,
         sessions=InMemorySessionStore(),
-        system_prompt="system",
-        params={},
+        system_prompt="Policy context: {context}",
+        params={
+            "llm": {"price_per_million_input_tokens": 1.0, "price_per_million_output_tokens": 2.0}
+        },
     )
 
 
-def test_returns_llm_answer_and_stores_history() -> None:
-    llm = MockLLM([LLMResponse(content="Free shipping from 300,000 VND.")])
-    orch = _orchestrator(llm)
-    resp = orch.handle(ChatRequest(session_id="s", message="Shipping fee?"))
-    assert resp.answer == "Free shipping from 300,000 VND."
+def _ask(orch: AgentOrchestrator, message: str):
+    return orch.handle(ChatRequest(session_id="s", message=message))
+
+
+def test_policy_answer_has_verbatim_citation_and_trace(caplog: pytest.LogCaptureFixture) -> None:
+    llm = MockLLM(
+        [
+            LLMResponse(
+                json.dumps({"answer": EVIDENCE, "evidence": [{"source": "S1", "quote": EVIDENCE}]}),
+                usage=Usage(10, 3, available=True),
+            )
+        ]
+    )
+    orch = _orchestrator(llm, chunks=[RetrievedChunk("shipping", EVIDENCE, 0.95, "chunk-1")])
+    with caplog.at_level("INFO", logger="support_agent.trace"):
+        response = _ask(orch, "Shipping fee?")
+    assert response.answer == EVIDENCE
     assert len(orch.sessions.history("s", max_turns=5)) == 2
+    assert response.citations[0].doc_id == "shipping"
+    assert response.citations[0].snippet == EVIDENCE
+    assert "chunk-1" in caplog.records[0].trace["retrieved_chunk_ids"]
+    assert caplog.records[0].trace["tokens_in"] == 10
+    assert caplog.records[0].trace["cost_usd"] == pytest.approx(16 / 1_000_000)
 
 
-@pytest.mark.skip(reason="TODO(FR-03): enable when RAG + citations are implemented")
-def test_policy_answer_has_citation() -> None: ...
+@pytest.mark.parametrize("source,quote", [("S9", EVIDENCE), ("S1", "invented"), ("S1", "")])
+def test_bad_policy_citation_returns_fallback(source: str, quote: str) -> None:
+    llm = MockLLM(
+        [
+            LLMResponse(
+                json.dumps(
+                    {
+                        "answer": "An unsupported price",
+                        "evidence": [{"source": source, "quote": quote}],
+                    }
+                )
+            )
+        ]
+    )
+    orch = _orchestrator(llm, chunks=[RetrievedChunk("shipping", EVIDENCE, 0.8)])
+    response = _ask(orch, "Shipping fee?")
+    assert "could not find" in response.answer
+    assert not response.citations
+    assert not response.handoff
+
+
+def test_empty_retrieval_does_not_invoke_model() -> None:
+    llm = MockLLM()
+    response = _ask(_orchestrator(llm), "Phí giao hàng là bao nhiêu?")
+    assert "chưa tìm thấy" in response.answer
+    assert not llm.calls
+
+
+def test_provider_error_returns_safe_response(monkeypatch: pytest.MonkeyPatch) -> None:
+    llm = MockLLM()
+    monkeypatch.setattr(llm, "complete", Mock(side_effect=LLMError("internal detail")))
+    orch = _orchestrator(llm, chunks=[RetrievedChunk("shipping", EVIDENCE, 0.8)])
+    response = _ask(orch, "Shipping fee?")
+    assert "try again" in response.answer
+    assert "internal detail" not in response.model_dump_json()
 
 
 @pytest.mark.skip(reason="TODO(FR-04): enable when the tool-calling loop is implemented")
