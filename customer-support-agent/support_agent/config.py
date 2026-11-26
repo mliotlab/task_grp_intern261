@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     llm_model: str = "gpt-4o-mini"
     llm_base_url: str | None = None
     llm_api_key: SecretStr | None = None
+    llm_timeout_seconds: float = 20.0
 
     prompt_version: str = "v1"
     agent_config: Path = PROJECT_ROOT / "configs" / "agent.yaml"

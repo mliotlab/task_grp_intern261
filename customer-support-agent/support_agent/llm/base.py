@@ -10,6 +10,10 @@ from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol
 
 
+class LLMError(RuntimeError):
+    """A provider request failed or violated the response contract."""
+
+
 @dataclass
 class ToolCall:
     id: str
@@ -29,6 +33,7 @@ class Message:
 class Usage:
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    available: bool = False
 
 
 @dataclass
