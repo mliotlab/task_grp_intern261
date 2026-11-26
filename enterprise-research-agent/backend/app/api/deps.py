@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Query, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
@@ -44,3 +45,17 @@ def get_current_user(
 
 def not_implemented(requirement: str) -> HTTPException:
     return HTTPException(status_code=501, detail=f"Not implemented yet ({requirement})")
+
+
+@dataclass(frozen=True)
+class PageParams:
+    limit: int
+    offset: int
+
+
+def page_params(
+    limit: int = Query(default=20, ge=1, le=100, description="Page size"),
+    offset: int = Query(default=0, ge=0, description="Number of items to skip"),
+) -> PageParams:
+    """Offset pagination shared by every list endpoint (Requirement 9.5)."""
+    return PageParams(limit=limit, offset=offset)

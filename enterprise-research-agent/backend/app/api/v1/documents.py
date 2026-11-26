@@ -6,16 +6,19 @@ import uuid
 
 from fastapi import APIRouter, Depends, File, UploadFile, status
 
-from app.api.deps import get_current_user_id, not_implemented
+from app.api.deps import PageParams, get_current_user_id, not_implemented, page_params
+from app.api.errors import error_responses
+from app.schemas.common import Page
 from app.schemas.document import ChunkOut, DocumentOut
 
-router = APIRouter(tags=["documents"])
+router = APIRouter(tags=["documents"], responses=error_responses(401, 404, 422))
 
 
 @router.post(
     "/collections/{collection_id}/documents",
     response_model=DocumentOut,
     status_code=status.HTTP_202_ACCEPTED,
+    responses=error_responses(413, 415),
 )
 def upload_document(
     collection_id: uuid.UUID,
@@ -31,10 +34,12 @@ def upload_document(
     raise not_implemented("FR-02")
 
 
-@router.get("/collections/{collection_id}/documents", response_model=list[DocumentOut])
+@router.get("/collections/{collection_id}/documents", response_model=Page[DocumentOut])
 def list_documents(
-    collection_id: uuid.UUID, user_id: uuid.UUID = Depends(get_current_user_id)
-) -> list[DocumentOut]:
+    collection_id: uuid.UUID,
+    page: PageParams = Depends(page_params),
+    user_id: uuid.UUID = Depends(get_current_user_id),
+) -> Page[DocumentOut]:
     raise not_implemented("FR-02")
 
 
