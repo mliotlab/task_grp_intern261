@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     llm_api_key: SecretStr | None = None
     llm_timeout_seconds: float = 20.0
 
-    prompt_version: str = "v1"
+    prompt_version: str = "v2"
     agent_config: Path = PROJECT_ROOT / "configs" / "agent.yaml"
 
     kb_dir: Path = PROJECT_ROOT / "kb"
