@@ -3,7 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
 
+from support_agent.config import Settings
+from support_agent.llm import LLMResponse, MockLLM
 from support_agent.retrieval.ingest import build_index, chunk_text, load_documents
 from support_agent.retrieval.retriever import VectorRetriever
 
@@ -101,3 +104,46 @@ def test_markdown_headings_and_duplicate_document_ids(tmp_path: Path) -> None:
     (subdir / "rules.md").write_text("Other policy", encoding="utf-8")
     with pytest.raises(ValueError, match="Duplicate document ID"):
         load_documents(tmp_path)
+
+
+def test_chat_uses_the_published_policy_index(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pytest.importorskip("numpy")
+    from services.chat_api import main as api
+
+    kb = tmp_path / "kb"
+    kb.mkdir()
+    (kb / "refund.md").write_text("## Refund\nRefunds take five days.", encoding="utf-8")
+    index_dir = tmp_path / "index"
+    embedder = TinyEmbedder()
+    build_index(kb, index_dir, "tiny", embedder=embedder)
+
+    settings = Settings(vector_store_dir=index_dir, embedding_model="tiny", prompt_version="v2")
+    llm = MockLLM(
+        [
+            LLMResponse(
+                '{"answer":"Refunds take five days.",'
+                '"evidence":[{"source":"S1","quote":"Refunds take five days."}]}'
+            )
+        ]
+    )
+    monkeypatch.setattr(api, "get_settings", lambda: settings)
+    monkeypatch.setattr(api, "create_llm", lambda settings: llm)
+    monkeypatch.setattr(
+        api,
+        "VectorRetriever",
+        lambda path, model, **kwargs: VectorRetriever(path, model, embedder=embedder, **kwargs),
+    )
+    api.get_orchestrator.cache_clear()
+    try:
+        with TestClient(api.create_app()) as client:
+            response = client.post(
+                "/v1/chat", json={"session_id": "index-test", "message": "How long is the refund?"}
+            )
+        assert response.status_code == 200
+        (citation,) = response.json()["citations"]
+        assert citation["doc_id"] == "refund"
+        assert citation["snippet"] == "Refunds take five days."
+    finally:
+        api.get_orchestrator.cache_clear()

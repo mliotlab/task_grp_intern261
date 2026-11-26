@@ -1,24 +1,33 @@
-"""Ground ShopX policy answers in retrieved text."""
+"""Ground policy answers in retrieved text and authorize Sprint 2 order tool calls."""
 
 from __future__ import annotations
 
 import json
 import re
 import unicodedata
-from typing import Any
+from datetime import date
+from typing import Any, Literal
 
+import httpx
 from pydantic import BaseModel, Field, ValidationError
 
 from support_agent.guardrails import check_input
 from support_agent.llm.base import LLMClient, LLMError, LLMResponse, Message
 from support_agent.memory import SessionStore
 from support_agent.retrieval.retriever import RetrievedChunk, Retriever
-from support_agent.schemas import ChatRequest, ChatResponse, Citation
-from support_agent.tools.registry import ToolRegistry
+from support_agent.schemas import AgentAction, ChatRequest, ChatResponse, Citation
+from support_agent.tools.order_status import GetOrderStatusArgs
+from support_agent.tools.registry import ToolError, ToolRegistry
 from support_agent.tracing import TurnTrace
 
+ORDER_TOOL = "get_order_status"
 ORDER_ID = re.compile(r"\bSX-[0-9]{6}\b", re.IGNORECASE)
 EMAIL = re.compile(r"\b[\w.!#$%&'*+/=?^_~-]+@[\w-]+(?:\.[\w-]+)+\b")
+ORDER_REQUEST = re.compile(
+    r"\b(?:tra cuu (?:don|trang thai)|trang thai don|ma don|don hang.{0,15}o dau"
+    r"|kiem tra.{0,30}don|order status|track (?:my |an |the )?order"
+    r"|where is (?:my |the )?order|look up (?:my |the )?order)\b"
+)
 
 
 class PolicyEvidence(BaseModel):
@@ -31,6 +40,21 @@ class PolicyReply(BaseModel):
     evidence: list[PolicyEvidence]
 
 
+class VerifiedOrder(BaseModel):
+    order_id: str
+    status: Literal["pending", "confirmed", "shipped", "delivered", "cancelled", "returned"]
+    estimated_delivery: date | None = None
+    carrier: str | None = Field(default=None, max_length=128)
+
+
+VIETNAMESE_STATUS = {
+    "pending": "chờ xác nhận",
+    "confirmed": "đã xác nhận",
+    "shipped": "đang giao",
+    "delivered": "đã giao",
+    "cancelled": "đã hủy",
+    "returned": "đã trả hàng",
+}
 FALLBACK_ANSWER = (
     "I could not find enough information in the ShopX policies. "
     "Would you like to contact a support agent?"
@@ -102,6 +126,8 @@ class AgentOrchestrator:
                 verdict = check_input(text)
             if not verdict.allowed:
                 response.handoff = verdict.suggest_handoff
+            elif ORDER_ID.search(text) or ORDER_REQUEST.search(_ascii_text(text)):
+                response.answer, response.actions = self._order(text, trace)
             else:
                 response.answer, response.citations = self._policy(text, trace)
         except LLMError:
@@ -195,3 +221,97 @@ class AgentOrchestrator:
                     )
                     seen.add(key)
         return answer, citations
+
+    def _order(self, text: str, trace: TurnTrace) -> tuple[str, list[AgentAction]]:
+        ids = {match.upper() for match in ORDER_ID.findall(text)}
+        emails = set(EMAIL.findall(text))
+        if len(ids) != 1 or len(emails) != 1:
+            return self._request_order_details(text), []
+        try:
+            requested = GetOrderStatusArgs(order_id=ids.pop(), email=emails.pop())
+        except ValidationError:
+            return self._request_order_details(text), []
+
+        tool_budget = self.params.get("agent", {}).get("max_tool_steps", 5)
+        schemas = [
+            schema for schema in self.tools.schemas() if schema["function"]["name"] == ORDER_TOOL
+        ]
+        if tool_budget < 1 or not schemas:
+            return _unavailable(text), []
+
+        result = self._complete(text, trace, {}, schemas)
+        if len(result.tool_calls) != 1 or result.tool_calls[0].name != ORDER_TOOL:
+            return _unavailable(text), []
+        try:
+            proposed = GetOrderStatusArgs.model_validate(result.tool_calls[0].arguments)
+        except ValidationError:
+            return self._request_order_details(text), []
+        if proposed != requested:
+            return self._request_order_details(text), []
+
+        return self._lookup(text, requested, trace)
+
+    def _lookup(
+        self, text: str, requested: GetOrderStatusArgs, trace: TurnTrace
+    ) -> tuple[str, list[AgentAction]]:
+        trace.tools_called.append(ORDER_TOOL)
+        outcome = "unavailable"
+        answer = _unavailable(text)
+        with trace.step("order_tool"):
+            try:
+                data = self.tools.call(ORDER_TOOL, requested.model_dump())
+                if isinstance(data, dict) and data.get("error") == "not_found":
+                    outcome = "not_found"
+                else:
+                    order = VerifiedOrder.model_validate(data)
+                    if order.order_id == requested.order_id:
+                        outcome = "verified"
+                        answer = self._describe_order(text, order)
+            except httpx.HTTPStatusError as error:
+                if error.response.status_code in {403, 404}:
+                    outcome = "not_found"
+            except (httpx.RequestError, ToolError, RuntimeError, ValidationError):
+                pass
+
+        if outcome == "not_found":
+            answer = _localized(
+                text,
+                "Mình chưa tìm thấy đơn khớp với mã đơn và email. Bạn kiểm tra lại cả hai nhé.",
+                "I couldn't find an order matching that order ID and email. Please check both.",
+            )
+        trace.tool_results.append(outcome)
+        verified = outcome == "verified"
+        return answer, [
+            AgentAction(
+                tool=ORDER_TOOL,
+                arguments={"order_id": requested.order_id} if verified else {},
+                ok=verified,
+                summary=outcome,
+            )
+        ]
+
+    @staticmethod
+    def _request_order_details(text: str) -> str:
+        return _localized(
+            text,
+            "Bạn cho mình mã đơn và email đã dùng khi đặt hàng để xác minh nhé.",
+            "Please provide the order ID and the email used for the order so I can verify it.",
+        )
+
+    @staticmethod
+    def _describe_order(text: str, order: VerifiedOrder) -> str:
+        answer = _localized(
+            text,
+            f"Đơn {order.order_id} hiện {VIETNAMESE_STATUS[order.status]}.",
+            f"Order {order.order_id} is {order.status}.",
+        )
+        if order.estimated_delivery:
+            delivery = order.estimated_delivery.isoformat()
+            answer += _localized(
+                text, f" Ngày giao dự kiến: {delivery}.", f" Estimated delivery: {delivery}."
+            )
+        if order.carrier:
+            answer += _localized(
+                text, f" Đơn vị vận chuyển: {order.carrier}.", f" Carrier: {order.carrier}."
+            )
+        return answer
