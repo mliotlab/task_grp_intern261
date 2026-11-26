@@ -3,9 +3,9 @@
 llm:
   temperature: 0.1
   max_output_tokens: 512
-  # USD per 1M tokens, used to estimate cost per turn (NFR-07). Update with the real price list.
-  price_per_million_input_tokens: 0.15
-  price_per_million_output_tokens: 0.60
+  # USD per 1M tokens. Set both rates from the approved provider before measuring cost.
+  price_per_million_input_tokens: null
+  price_per_million_output_tokens: null
 
 agent:
   max_history_turns: 6        # FR-07: turns of history kept in the context window
