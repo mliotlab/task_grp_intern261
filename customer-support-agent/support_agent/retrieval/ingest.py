@@ -1,15 +1,15 @@
-"""Ingestion pipeline: read kb/ → chunk → embed → store (FR-02).
-
-A naive baseline is provided for loading Markdown and fixed-size chunking so the pipeline runs
-end-to-end from day one. Improving it (heading-aware chunks, PDF support, idempotent re-index)
-is part of the project.
-"""
+"""Ingest ShopX Markdown/PDF and publish an embedding snapshot (FR-02)."""
 
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from support_agent.retrieval.index import Embedder, write_index
+
+HEADING = re.compile(r"^ {0,3}#{1,6}[ \t]+(.+?)$", re.MULTILINE)
 
 
 @dataclass(frozen=True)
@@ -17,6 +17,7 @@ class SourceDocument:
     doc_id: str
     path: Path
     text: str
+    pages: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -28,49 +29,85 @@ class Chunk:
 
 
 def load_documents(kb_dir: Path) -> list[SourceDocument]:
-    """Load every Markdown file in `kb_dir`. The file stem is the `doc_id` used in citations."""
+    """Read Markdown and text-layer PDF sources with unique document IDs."""
+    if not kb_dir.is_dir():
+        raise ValueError(f"Knowledge base directory does not exist: {kb_dir}")
     docs = []
-    for path in sorted(kb_dir.glob("**/*.md")):
+    seen = set()
+    for path in sorted(kb_dir.rglob("*")):
+        extension = path.suffix.lower()
+        if not path.is_file() or extension not in {".md", ".pdf"}:
+            continue
         if path.name.lower() == "readme.md":
             continue
-        docs.append(SourceDocument(doc_id=path.stem, path=path, text=path.read_text("utf-8")))
-    # TODO(FR-02): support PDF files (pypdf) in addition to Markdown.
+        if path.stem.casefold() in seen:
+            raise ValueError(f"Duplicate document ID: {path.stem}")
+        seen.add(path.stem.casefold())
+        if extension == ".pdf":
+            from pypdf import PdfReader
+
+            with path.open("rb") as stream:
+                pages = tuple(page.extract_text() or "" for page in PdfReader(stream).pages)
+            text = "\n\n".join(pages)
+            if not text.strip():
+                raise ValueError(f"PDF has no extractable text: {path.name}")
+            docs.append(SourceDocument(path.stem, path, text, pages))
+        else:
+            docs.append(SourceDocument(path.stem, path, path.read_text("utf-8")))
     return docs
 
 
-def chunk_text(doc: SourceDocument, chunk_size: int = 800, overlap: int = 120) -> list[Chunk]:
-    """Baseline fixed-size character chunking with overlap.
+def _sections(doc: SourceDocument) -> list[tuple[str, dict[str, str]]]:
+    if doc.pages:
+        return [(text, {"page": str(number)}) for number, text in enumerate(doc.pages, 1)]
+    headings = list(HEADING.finditer(doc.text))
+    if not headings:
+        return [(doc.text, {})]
+    blocks = [(doc.text[: headings[0].start()], {})]
+    ends = [match.start() for match in headings[1:]] + [len(doc.text)]
+    for match, end in zip(headings, ends, strict=True):
+        blocks.append((doc.text[match.start() : end], {"section": match.group(1).strip()}))
+    return blocks
 
-    TODO(FR-02): split on Markdown headings first so each chunk keeps its section title,
-    and store the heading in `metadata["section"]` for better citations.
-    """
-    if overlap >= chunk_size:
-        raise ValueError("overlap must be smaller than chunk_size")
-    text = doc.text.strip()
+
+def chunk_text(doc: SourceDocument, chunk_size: int = 800, overlap: int = 120) -> list[Chunk]:
+    """Split by heading or page and apply overlapping windows inside long blocks."""
+    if not 0 <= overlap < chunk_size:
+        raise ValueError("Expected 0 <= overlap < chunk_size")
     chunks: list[Chunk] = []
-    start = 0
-    while start < len(text):
-        piece = text[start : start + chunk_size]
-        digest = hashlib.sha1(f"{doc.doc_id}:{start}:{piece}".encode(), usedforsecurity=False)
-        chunks.append(
-            Chunk(
-                chunk_id=digest.hexdigest()[:16],
-                doc_id=doc.doc_id,
-                text=piece,
-                metadata={"source": str(doc.path.name), "offset": str(start)},
+    for section_index, (block, metadata) in enumerate(_sections(doc)):
+        text = block.strip()
+        for start in range(0, len(text), chunk_size - overlap):
+            piece = text[start : start + chunk_size]
+            identity = f"{doc.doc_id}:{section_index}:{start}:{piece}"
+            chunks.append(
+                Chunk(
+                    chunk_id=hashlib.sha256(identity.encode()).hexdigest(),
+                    doc_id=doc.doc_id,
+                    text=piece,
+                    metadata={"source": doc.path.name, "offset": str(start), **metadata},
+                )
             )
-        )
-        if start + chunk_size >= len(text):
-            break
-        start += chunk_size - overlap
+            if start + chunk_size >= len(text):
+                break
     return chunks
 
 
-def build_index(kb_dir: Path, vector_store_dir: Path, embedding_model: str) -> int:
-    """Embed all chunks and persist them in the vector store. Returns the number of chunks.
-
-    TODO(FR-02): implement with Chroma or FAISS (`pip install -e ".[rag]"`).
-      - Use a multilingual embedding model (e.g. multilingual-e5 / bge-m3), remember E5 prefixes.
-      - Make re-runs idempotent: upsert by `chunk_id`, delete chunks of removed documents.
-    """
-    raise NotImplementedError("Vector index is not implemented yet (FR-02)")
+def build_index(
+    kb_dir: Path,
+    vector_store_dir: Path,
+    embedding_model: str,
+    *,
+    embedding_revision: str | None = None,
+    chunk_size: int = 800,
+    overlap: int = 120,
+    embedder: Embedder | None = None,
+) -> int:
+    """Build and publish a complete snapshot, replacing stale or deleted chunks."""
+    if not 0 <= overlap < chunk_size:
+        raise ValueError("Expected 0 <= overlap < chunk_size")
+    chunks = [
+        chunk for doc in load_documents(kb_dir) for chunk in chunk_text(doc, chunk_size, overlap)
+    ]
+    write_index(vector_store_dir, chunks, embedding_model, embedding_revision, embedder)
+    return len(chunks)

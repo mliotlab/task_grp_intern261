@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     kb_dir: Path = PROJECT_ROOT / "kb"
     vector_store_dir: Path = PROJECT_ROOT / "var" / "vector_store"
     embedding_model: str = "intfloat/multilingual-e5-small"
+    embedding_revision: str | None = None
 
     order_api_url: str = "http://localhost:8001"
     orders_file: Path = PROJECT_ROOT / "var" / "orders.json"
