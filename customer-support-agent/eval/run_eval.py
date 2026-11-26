@@ -1,4 +1,4 @@
-"""Run eval v0 via POST /v1/chat and export Sprint 2 reports."""
+"""Run eval v0 via POST /v1/chat, or verify the 10 deterministic Sprint 2 cases."""
 
 from __future__ import annotations
 
@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from eval.sprint2_mock import CI_IDS, ci_orchestrator
 from support_agent.config import get_settings
 from support_agent.orchestrator import EMAIL, ORDER_TOOL, VIETNAMESE_STATUS
 from support_agent.schemas import ChatResponse
@@ -68,6 +69,7 @@ class CaseResult:
     tools: str = ""
     citation_hit: bool | None = None
     tool_match: bool | None = None
+    tool_args_match: bool | None = None
     verified_order_fields: bool | None = None
     order_privacy: bool | None = None
     fallback_hit: bool | None = None
@@ -207,6 +209,39 @@ def run_case(client: Any, case: EvalCase) -> tuple[CaseResult, list[float]]:
     return result, latencies
 
 
+def run_ci(cases: list[EvalCase], kb_dir: Path) -> tuple[list[CaseResult], list[float]]:
+    from fastapi.testclient import TestClient
+
+    from services.chat_api.main import create_app, get_orchestrator
+
+    by_id = {case.id: case for case in cases}
+    missing = [case_id for case_id in CI_IDS if case_id not in by_id]
+    if missing:
+        raise ValueError(f"CI case IDs missing: {', '.join(missing)}. Use the integrated v0.")
+    app = create_app()
+    params = get_settings().agent_params()
+    results = []
+    latencies = []
+
+    def run_fixture(client: Any, case: EvalCase) -> tuple[CaseResult, list[float]]:
+        orchestrator, order_tool = ci_orchestrator(case.id, kb_dir, params)
+        app.dependency_overrides[get_orchestrator] = lambda: orchestrator
+        result, measurements = run_case(client, case)
+        expected_calls = [case.expected_tool_args] if case.expected_tool == ORDER_TOOL else []
+        result.tool_args_match = order_tool.calls == expected_calls
+        if not result.tool_args_match:
+            result.status = "failed"
+            result.reason = ", ".join(filter(None, (result.reason, "incorrect tool arguments")))
+        return result, measurements
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        for case_id in CI_IDS:
+            result, measurements = run_fixture(client, by_id[case_id])
+            results.append(result)
+            latencies.extend(measurements)
+    return results, latencies
+
+
 def _rate(values: list[bool | None]) -> str:
     measured = [value for value in values if value is not None]
     return f"{sum(measured)}/{len(measured)}" if measured else "not measured"
@@ -248,6 +283,7 @@ def write_reports(
     for label, key in (
         ("Expected citation ID and nonempty snippet", "citation_hit"),
         ("Tool name and call count", "tool_match"),
+        ("Tool arguments (mock spy)", "tool_args_match"),
         ("Verified-order response", "verified_order_fields"),
         ("Denied/incomplete lookup privacy checks", "order_privacy"),
         ("No-source response", "fallback_hit"),
@@ -275,7 +311,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dataset", type=Path, default=Path("eval/datasets/v0"))
     parser.add_argument("--api-url", default="http://localhost:8000")
-    parser.add_argument("--in-process", action="store_true", help="Run the current app in-process")
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--in-process", action="store_true", help="Run the current app in-process")
+    modes.add_argument("--ci", action="store_true", help="Run exactly 10 deterministic mock cases")
     parser.add_argument("--limit", type=int)
     parser.add_argument("--out", type=Path, default=Path("eval/reports"))
     parser.add_argument("--kb-dir", type=Path)
@@ -283,34 +321,38 @@ def main() -> None:
     parser.add_argument("--model-label", help="Provider/model deployed at --api-url")
     parser.add_argument("--prompt-version", help="Prompt version deployed at --api-url")
     args = parser.parse_args()
-    if args.limit is not None and args.limit < 1:
-        parser.error("--limit must be positive.")
+    if args.limit is not None and (args.limit < 1 or args.ci):
+        parser.error("--limit must be positive and cannot be used with --ci.")
 
     settings = get_settings()
     kb_dir = args.kb_dir or settings.kb_dir
     cases = load_cases(args.dataset, args.limit)
-    if args.in_process:
-        from fastapi.testclient import TestClient
-
-        from services.chat_api.main import create_app
-
-        if settings.llm_provider != "mock":
-            parser.error("Set LLM_PROVIDER=mock for --in-process, or use --api-url.")
-        client = TestClient(create_app(), raise_server_exceptions=False)
-        mode, model, prompt = "in-process app", "mock", settings.prompt_version
+    if args.ci:
+        results, latencies = run_ci(cases, kb_dir)
+        mode, model, prompt = "in-process CI fixtures", "scripted mock", "v2"
     else:
-        client = httpx.Client(base_url=args.api_url, timeout=60)
-        mode = "HTTP API"
-        model, prompt = (
-            args.model_label or "not supplied",
-            args.prompt_version or "not supplied",
-        )
-    results, latencies = [], []
-    with client:
-        for case in cases:
-            result, measured = run_case(client, case)
-            results.append(result)
-            latencies.extend(measured)
+        if args.in_process:
+            from fastapi.testclient import TestClient
+
+            from services.chat_api.main import create_app
+
+            if settings.llm_provider != "mock":
+                parser.error("Set LLM_PROVIDER=mock for --in-process, or use --api-url.")
+            client = TestClient(create_app(), raise_server_exceptions=False)
+            mode, model, prompt = "in-process app", "mock", settings.prompt_version
+        else:
+            client = httpx.Client(base_url=args.api_url, timeout=60)
+            mode = "HTTP API"
+            model, prompt = (
+                args.model_label or "not supplied",
+                args.prompt_version or "not supplied",
+            )
+        results, latencies = [], []
+        with client:
+            for case in cases:
+                result, measured = run_case(client, case)
+                results.append(result)
+                latencies.extend(measured)
 
     metadata = {
         "Mode": mode,
@@ -326,6 +368,8 @@ def main() -> None:
     }
     report = write_reports(results, latencies, args.out, metadata)
     print(report.read_text(encoding="utf-8"))
+    if args.ci and any(result.status != "passed_checks" for result in results):
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
