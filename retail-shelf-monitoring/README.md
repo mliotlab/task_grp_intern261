@@ -90,16 +90,16 @@ curl -F "image=@shelf.jpg" -F "store_id=S001" http://localhost:8000/v1/analyze
 
 | ID | Requirement | Priority | Where | Status |
 |---|---|---|---|---|
-| FR-01 | `POST /v1/analyze` (JPG/PNG ≤ 10 MB, store_id) → boxes, count, gaps, fill rate, id | Must | `services/api`, `pipeline.py` | 🟨 contract + pipeline wiring |
-| FR-02 | Annotated image via `GET /v1/analyses/{id}/image` | Must | `postprocess/visualize.py` | ⬜ |
-| FR-03 | Rows by vertical position + gaps > k × mean width | Must | `postprocess/rows.py`, `gaps.py` | ⬜ tests ready |
-| FR-04 | Fill rate per row + image; alert below threshold (80%) | Must | `fill_rate.py`, `alert.py` | 🟨 alert rule done |
+| FR-01 | `POST /v1/analyze` (JPG/PNG ≤ 10 MB, store_id) → boxes, count, gaps, fill rate, id | Must | `services/api`, `pipeline.py` | 🟨 pipeline ready; API route pending (#40) |
+| FR-02 | Annotated image via `GET /v1/analyses/{id}/image` | Must | `postprocess/visualize.py` | 🟨 renderer done; API route pending (#40) |
+| FR-03 | Rows by vertical position + gaps > k × local median width | Must | `postprocess/rows.py`, `gaps.py` | ✅ v1 done + unit tests (#42) |
+| FR-04 | Fill rate per row + image; alert below threshold (80%) | Must | `fill_rate.py`, `alert.py` | ✅ v1 done + unit tests (#42) |
 | FR-05 | History in DB; `GET /v1/analyses` filtered by store & time | Must | `services/api` | ⬜ |
 | FR-06 | `/health` + standard errors for bad / wrong / oversized images | Must | `services/api` | 🟨 health done |
 | FR-07 | Dashboard: history, filters, annotated images, alerts | Should | `services/dashboard` | 🟨 skeleton |
 | FR-08 | Batch CLI → CSV | Should | `shelfmon/cli.py` | 🟨 skeleton |
 | FR-09 | Webhook alerts (Telegram / Slack) | Could | `alert.py` | ⬜ |
-| FR-10 | ROI per camera / store | Could | `pipeline.py` | ⬜ |
+| FR-10 | ROI per camera / store | Could | `postprocess/roi.py`, `pipeline.py` | 🟨 `StoreROI` core ready |
 
 | NFR | Target |
 |---|---|
