@@ -1,4 +1,3 @@
-
 """Research pipeline: plan → retrieve → extract → write → verify citations (FR-05).
 
 Each step is a small, separately testable function. The runner records progress after every step
@@ -68,9 +67,7 @@ def retrieve(state: ResearchState) -> ResearchState:
         raise ValueError("Invalid owner_id.")
 
     if not state.sub_questions:
-        raise ValueError(
-            "No sub-questions available. Run plan() before retrieve()."
-        )
+        raise ValueError("No sub-questions available. Run plan() before retrieve().")
 
     # 2. Retrieve evidence for each sub-question.
     retrieved_evidence: list[Evidence] = []
