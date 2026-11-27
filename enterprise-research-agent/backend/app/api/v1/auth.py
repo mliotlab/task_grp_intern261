@@ -5,19 +5,29 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, status
 
 from app.api.deps import get_current_user, not_implemented
+from app.api.errors import error_responses
 from app.models import User
 from app.schemas.auth import LoginRequest, RegisterRequest, TokenResponse, UserOut
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-@router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/register",
+    response_model=UserOut,
+    status_code=status.HTTP_201_CREATED,
+    responses=error_responses(409, 422, messages={409: "Email already registered"}),
+)
 def register(body: RegisterRequest) -> UserOut:
     """TODO(FR-01): reject duplicate emails (409), store `hash_password(body.password)`."""
     raise not_implemented("FR-01")
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post(
+    "/login",
+    response_model=TokenResponse,
+    responses=error_responses(401, 422, messages={401: "Invalid email or password"}),
+)
 def login(body: LoginRequest) -> TokenResponse:
     """TODO(FR-01): verify_password → create_access_token(str(user.id)).
 
@@ -26,6 +36,6 @@ def login(body: LoginRequest) -> TokenResponse:
     raise not_implemented("FR-01")
 
 
-@router.get("/me", response_model=UserOut)
+@router.get("/me", response_model=UserOut, responses=error_responses(401))
 def me(user: User = Depends(get_current_user)) -> UserOut:
     return UserOut(id=user.id, email=user.email)

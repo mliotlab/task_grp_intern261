@@ -54,3 +54,4 @@ data/sku110k_subset/*
 !data/sku110k_subset/manifests/
 !data/sku110k_subset/dataset_metadata.json
 data/raw/
+data/gap_eval/

@@ -40,12 +40,34 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/UserOut'
-        '422':
-          description: Validation Error
+        '409':
+          description: Conflicts with the current state of the resource
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: conflict
+                  message: Email already registered
+                  request_id: 3f2b9c1e8a7d4b0c9e1f2a3b4c5d6e7f
+        '422':
+          description: Request validation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: validation_error
+                  message: Request validation failed
+                  request_id: 3f2b9c1e8a7d4b0c9e1f2a3b4c5d6e7f
+                  details:
+                  - loc:
+                    - body
+                    - email
+                    msg: value is not a valid email address
+                    type: value_error
   /v1/auth/login:
     post:
       tags:
@@ -69,12 +91,34 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TokenResponse'
-        '422':
-          description: Validation Error
+        '401':
+          description: Missing, invalid or expired token
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: unauthorized
+                  message: Invalid email or password
+                  request_id: 3f2b9c1e8a7d4b0c9e1f2a3b4c5d6e7f
+        '422':
+          description: Request validation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: validation_error
+                  message: Request validation failed
+                  request_id: 3f2b9c1e8a7d4b0c9e1f2a3b4c5d6e7f
+                  details:
+                  - loc:
+                    - body
+                    - email
+                    msg: value is not a valid email address
+                    type: value_error
   /v1/auth/me:
     get:
       tags:
@@ -88,6 +132,17 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/UserOut'
+        '401':
+          description: Missing, invalid or expired token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: unauthorized
+                  message: Not authenticated
+                  request_id: 3f2b9c1e8a7d4b0c9e1f2a3b4c5d6e7f
       security:
       - HTTPBearer: []
   /v1/collections:
@@ -97,29 +152,78 @@ paths:
       summary: List Collections
       description: 'TODO(FR-07): only the caller''s collections.'
       operationId: list_collections_v1_collections_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          description: Page size
+          default: 20
+          title: Limit
+        description: Page size
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          description: Number of items to skip
+          default: 0
+          title: Offset
+        description: Number of items to skip
       responses:
         '200':
           description: Successful Response
           content:
             application/json:
               schema:
-                items:
-                  $ref: '#/components/schemas/CollectionOut'
-                type: array
-                title: Response List Collections V1 Collections Get
-      security:
-      - HTTPBearer: []
+                $ref: '#/components/schemas/Page_CollectionOut_'
+        '401':
+          description: Missing, invalid or expired token
+          content:
+            application/json:
+              example:
+                error:
+                  code: unauthorized
+                  message: Not authenticated
+                  request_id: 3f2b9c1e8a7d4b0c9e1f2a3b4c5d6e7f
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Request validation failed
+          content:
+            application/json:
+              example:
+                error:
+                  code: validation_error
+                  message: Request validation failed
+                  request_id: 3f2b9c1e8a7d4b0c9e1f2a3b4c5d6e7f
+                  details:
+                  - loc:
+                    - body
+                    - email
+                    msg: value is not a valid email address
+                    type: value_error
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
     post:
       tags:
       - collections
       summary: Create Collection
       operationId: create_collection_v1_collections_post
+      security:
+      - HTTPBearer: []
       requestBody:
+        required: true
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/CollectionCreate'
-        required: true
       responses:
         '201':
           description: Successful Response
@@ -127,14 +231,34 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CollectionOut'
-        '422':
-          description: Validation Error
+        '401':
+          description: Missing, invalid or expired token
           content:
             application/json:
+              example:
+                error:
+                  code: unauthorized
+                  message: Not authenticated
+                  request_id: 3f2b9c1e8a7d4b0c9e1f2a3b4c5d6e7f
               schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-      security:
-      - HTTPBearer: []
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Request validation failed
+          content:
+            application/json:
+              example:
+                error:
+                  code: validation_error
+                  message: Request validation failed
+                  request_id: 3f2b9c1e8a7d4b0c9e1f2a3b4c5d6e7f
+                  details:
+                  - loc:
+                    - body
+                    - email
+                    msg: value is not a valid email address
+                    type: value_error
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /v1/collections/{collection_id}:
     delete:
       tags:
@@ -156,12 +280,45 @@ paths:
       responses:
         '204':
           description: Successful Response
-        '422':
-          description: Validation Error
+        '401':
+          description: Missing, invalid or expired token
           content:
             application/json:
+              example:
+                error:
+                  code: unauthorized
+                  message: Not authenticated
+                  request_id: 3f2b9c1e8a7d4b0c9e1f2a3b4c5d6e7f
               schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Request validation failed
+          content:
+            application/json:
+              example:
+                error:
+                  code: validation_error
+                  message: Request validation failed
+                  request_id: 3f2b9c1e8a7d4b0c9e1f2a3b4c5d6e7f
+                  details:
+                  - loc:
+                    - body
+                    - email
+                    msg: value is not a valid email address
+                    type: value_error
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Resource does not exist or belongs to another user
+          content:
+            application/json:
+              example:
+                error:
+                  code: not_found
+                  message: Not found
+                  request_id: 3f2b9c1e8a7d4b0c9e1f2a3b4c5d6e7f
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /v1/collections/{collection_id}/documents:
     post:
       tags:
@@ -195,12 +352,67 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/DocumentOut'
-        '422':
-          description: Validation Error
+        '401':
+          description: Missing, invalid or expired token
           content:
             application/json:
+              example:
+                error:
+                  code: unauthorized
+                  message: Not authenticated
+                  request_id: 3f2b9c1e8a7d4b0c9e1f2a3b4c5d6e7f
               schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Resource does not exist or belongs to another user
+          content:
+            application/json:
+              example:
+                error:
+                  code: not_found
+                  message: Not found
+                  request_id: 3f2b9c1e8a7d4b0c9e1f2a3b4c5d6e7f
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Request validation failed
+          content:
+            application/json:
+              example:
+                error:
+                  code: validation_error
+                  message: Request validation failed
+                  request_id: 3f2b9c1e8a7d4b0c9e1f2a3b4c5d6e7f
+                  details:
+                  - loc:
+                    - body
+                    - email
+                    msg: value is not a valid email address
+                    type: value_error
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '413':
+          description: File larger than MAX_UPLOAD_MB (20 MB)
+          content:
+            application/json:
+              example:
+                error:
+                  code: payload_too_large
+                  message: File exceeds 20 MB
+                  request_id: 3f2b9c1e8a7d4b0c9e1f2a3b4c5d6e7f
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '415':
+          description: File type is not .pdf, .docx or .md
+          content:
+            application/json:
+              example:
+                error:
+                  code: unsupported_media_type
+                  message: 'Unsupported file type: .xlsx'
+                  request_id: 3f2b9c1e8a7d4b0c9e1f2a3b4c5d6e7f
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
     get:
       tags:
       - documents
@@ -216,23 +428,73 @@ paths:
           type: string
           format: uuid
           title: Collection Id
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          description: Page size
+          default: 20
+          title: Limit
+        description: Page size
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          description: Number of items to skip
+          default: 0
+          title: Offset
+        description: Number of items to skip
       responses:
         '200':
           description: Successful Response
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/DocumentOut'
-                title: Response List Documents V1 Collections  Collection Id  Documents
-                  Get
-        '422':
-          description: Validation Error
+                $ref: '#/components/schemas/Page_DocumentOut_'
+        '401':
+          description: Missing, invalid or expired token
           content:
             application/json:
+              example:
+                error:
+                  code: unauthorized
+                  message: Not authenticated
+                  request_id: 3f2b9c1e8a7d4b0c9e1f2a3b4c5d6e7f
               schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Resource does not exist or belongs to another user
+          content:
+            application/json:
+              example:
+                error:
+                  code: not_found
+                  message: Not found
+                  request_id: 3f2b9c1e8a7d4b0c9e1f2a3b4c5d6e7f
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Request validation failed
+          content:
+            application/json:
+              example:
+                error:
+                  code: validation_error
+                  message: Request validation failed
+                  request_id: 3f2b9c1e8a7d4b0c9e1f2a3b4c5d6e7f
+                  details:
+                  - loc:
+                    - body
+                    - email
+                    msg: value is not a valid email address
+                    type: value_error
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /v1/documents/{document_id}:
     get:
       tags:
@@ -256,12 +518,45 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/DocumentOut'
-        '422':
-          description: Validation Error
+        '401':
+          description: Missing, invalid or expired token
           content:
             application/json:
+              example:
+                error:
+                  code: unauthorized
+                  message: Not authenticated
+                  request_id: 3f2b9c1e8a7d4b0c9e1f2a3b4c5d6e7f
               schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Resource does not exist or belongs to another user
+          content:
+            application/json:
+              example:
+                error:
+                  code: not_found
+                  message: Not found
+                  request_id: 3f2b9c1e8a7d4b0c9e1f2a3b4c5d6e7f
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Request validation failed
+          content:
+            application/json:
+              example:
+                error:
+                  code: validation_error
+                  message: Request validation failed
+                  request_id: 3f2b9c1e8a7d4b0c9e1f2a3b4c5d6e7f
+                  details:
+                  - loc:
+                    - body
+                    - email
+                    msg: value is not a valid email address
+                    type: value_error
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /v1/chunks/{chunk_id}:
     get:
       tags:
@@ -287,12 +582,45 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ChunkOut'
-        '422':
-          description: Validation Error
+        '401':
+          description: Missing, invalid or expired token
           content:
             application/json:
+              example:
+                error:
+                  code: unauthorized
+                  message: Not authenticated
+                  request_id: 3f2b9c1e8a7d4b0c9e1f2a3b4c5d6e7f
               schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Resource does not exist or belongs to another user
+          content:
+            application/json:
+              example:
+                error:
+                  code: not_found
+                  message: Not found
+                  request_id: 3f2b9c1e8a7d4b0c9e1f2a3b4c5d6e7f
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Request validation failed
+          content:
+            application/json:
+              example:
+                error:
+                  code: validation_error
+                  message: Request validation failed
+                  request_id: 3f2b9c1e8a7d4b0c9e1f2a3b4c5d6e7f
+                  details:
+                  - loc:
+                    - body
+                    - email
+                    msg: value is not a valid email address
+                    type: value_error
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /v1/research:
     post:
       tags:
@@ -316,12 +644,45 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ResearchAccepted'
-        '422':
-          description: Validation Error
+        '401':
+          description: Missing, invalid or expired token
           content:
             application/json:
+              example:
+                error:
+                  code: unauthorized
+                  message: Not authenticated
+                  request_id: 3f2b9c1e8a7d4b0c9e1f2a3b4c5d6e7f
               schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Request validation failed
+          content:
+            application/json:
+              example:
+                error:
+                  code: validation_error
+                  message: Request validation failed
+                  request_id: 3f2b9c1e8a7d4b0c9e1f2a3b4c5d6e7f
+                  details:
+                  - loc:
+                    - body
+                    - email
+                    msg: value is not a valid email address
+                    type: value_error
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Resource does not exist or belongs to another user
+          content:
+            application/json:
+              example:
+                error:
+                  code: not_found
+                  message: Not found
+                  request_id: 3f2b9c1e8a7d4b0c9e1f2a3b4c5d6e7f
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
     get:
       tags:
       - research
@@ -340,22 +701,62 @@ paths:
           description: Search in questions (FR-08)
           title: Q
         description: Search in questions (FR-08)
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          description: Page size
+          default: 20
+          title: Limit
+        description: Page size
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          description: Number of items to skip
+          default: 0
+          title: Offset
+        description: Number of items to skip
       responses:
         '200':
           description: Successful Response
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/ResearchOut'
-                title: Response List Research V1 Research Get
-        '422':
-          description: Validation Error
+                $ref: '#/components/schemas/Page_ResearchOut_'
+        '401':
+          description: Missing, invalid or expired token
           content:
             application/json:
+              example:
+                error:
+                  code: unauthorized
+                  message: Not authenticated
+                  request_id: 3f2b9c1e8a7d4b0c9e1f2a3b4c5d6e7f
               schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Request validation failed
+          content:
+            application/json:
+              example:
+                error:
+                  code: validation_error
+                  message: Request validation failed
+                  request_id: 3f2b9c1e8a7d4b0c9e1f2a3b4c5d6e7f
+                  details:
+                  - loc:
+                    - body
+                    - email
+                    msg: value is not a valid email address
+                    type: value_error
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /v1/research/{job_id}:
     get:
       tags:
@@ -381,12 +782,45 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ResearchOut'
-        '422':
-          description: Validation Error
+        '401':
+          description: Missing, invalid or expired token
           content:
             application/json:
+              example:
+                error:
+                  code: unauthorized
+                  message: Not authenticated
+                  request_id: 3f2b9c1e8a7d4b0c9e1f2a3b4c5d6e7f
               schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Request validation failed
+          content:
+            application/json:
+              example:
+                error:
+                  code: validation_error
+                  message: Request validation failed
+                  request_id: 3f2b9c1e8a7d4b0c9e1f2a3b4c5d6e7f
+                  details:
+                  - loc:
+                    - body
+                    - email
+                    msg: value is not a valid email address
+                    type: value_error
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Resource does not exist or belongs to another user
+          content:
+            application/json:
+              example:
+                error:
+                  code: not_found
+                  message: Not found
+                  request_id: 3f2b9c1e8a7d4b0c9e1f2a3b4c5d6e7f
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /v1/research/{job_id}/cancel:
     post:
       tags:
@@ -410,12 +844,56 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ResearchOut'
-        '422':
-          description: Validation Error
+        '401':
+          description: Missing, invalid or expired token
           content:
             application/json:
+              example:
+                error:
+                  code: unauthorized
+                  message: Not authenticated
+                  request_id: 3f2b9c1e8a7d4b0c9e1f2a3b4c5d6e7f
               schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Request validation failed
+          content:
+            application/json:
+              example:
+                error:
+                  code: validation_error
+                  message: Request validation failed
+                  request_id: 3f2b9c1e8a7d4b0c9e1f2a3b4c5d6e7f
+                  details:
+                  - loc:
+                    - body
+                    - email
+                    msg: value is not a valid email address
+                    type: value_error
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Resource does not exist or belongs to another user
+          content:
+            application/json:
+              example:
+                error:
+                  code: not_found
+                  message: Not found
+                  request_id: 3f2b9c1e8a7d4b0c9e1f2a3b4c5d6e7f
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Conflicts with the current state of the resource
+          content:
+            application/json:
+              example:
+                error:
+                  code: conflict
+                  message: Job has already finished
+                  request_id: 3f2b9c1e8a7d4b0c9e1f2a3b4c5d6e7f
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /v1/research/{job_id}/retry:
     post:
       tags:
@@ -439,12 +917,56 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ResearchAccepted'
-        '422':
-          description: Validation Error
+        '401':
+          description: Missing, invalid or expired token
           content:
             application/json:
+              example:
+                error:
+                  code: unauthorized
+                  message: Not authenticated
+                  request_id: 3f2b9c1e8a7d4b0c9e1f2a3b4c5d6e7f
               schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Request validation failed
+          content:
+            application/json:
+              example:
+                error:
+                  code: validation_error
+                  message: Request validation failed
+                  request_id: 3f2b9c1e8a7d4b0c9e1f2a3b4c5d6e7f
+                  details:
+                  - loc:
+                    - body
+                    - email
+                    msg: value is not a valid email address
+                    type: value_error
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Resource does not exist or belongs to another user
+          content:
+            application/json:
+              example:
+                error:
+                  code: not_found
+                  message: Not found
+                  request_id: 3f2b9c1e8a7d4b0c9e1f2a3b4c5d6e7f
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Conflicts with the current state of the resource
+          content:
+            application/json:
+              example:
+                error:
+                  code: conflict
+                  message: Only failed jobs can be retried
+                  request_id: 3f2b9c1e8a7d4b0c9e1f2a3b4c5d6e7f
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 components:
   schemas:
     Body_upload_document_v1_collections__collection_id__documents_post:
@@ -492,6 +1014,13 @@ components:
       - section
       - text
       title: ChunkOut
+      examples:
+      - document_id: 77c1a9e4-2f6b-4d3c-9b8a-1e2f3a4b5c6d
+        filename: NIST.SP.800-53r5.pdf
+        id: c9e0f1a2-b3c4-4d5e-8f6a-7b8c9d0e1f2a
+        page: 18
+        section: AC-2 Account Management
+        text: Define and document the types of accounts allowed...
     CitationOut:
       properties:
         marker:
@@ -544,6 +1073,9 @@ components:
       required:
       - name
       title: CollectionCreate
+      examples:
+      - description: Bộ tài liệu bảo mật NIST SP 800
+        name: NIST SP 800
     CollectionOut:
       properties:
         id:
@@ -573,6 +1105,12 @@ components:
       - description
       - created_at
       title: CollectionOut
+      examples:
+      - created_at: '2026-11-20T09:15:00Z'
+        description: Bộ tài liệu bảo mật NIST SP 800
+        document_count: 3
+        id: 5d1e7f20-3b4a-4c8d-8e9f-0a1b2c3d4e5f
+        name: NIST SP 800
     DocumentOut:
       properties:
         id:
@@ -609,6 +1147,13 @@ components:
       - status
       - created_at
       title: DocumentOut
+      examples:
+      - collection_id: 5d1e7f20-3b4a-4c8d-8e9f-0a1b2c3d4e5f
+        created_at: '2026-11-20T09:15:00Z'
+        filename: NIST.SP.800-53r5.pdf
+        id: 77c1a9e4-2f6b-4d3c-9b8a-1e2f3a4b5c6d
+        size_bytes: 482133
+        status: queued
     DocumentStatus:
       type: string
       enum:
@@ -617,15 +1162,44 @@ components:
       - ready
       - failed
       title: DocumentStatus
-    HTTPValidationError:
+    ErrorBody:
       properties:
-        detail:
-          items:
-            $ref: '#/components/schemas/ValidationError'
-          type: array
-          title: Detail
+        code:
+          type: string
+          title: Code
+          description: Stable machine-readable code, e.g. `not_found`
+        message:
+          type: string
+          title: Message
+          description: Human-readable message
+        request_id:
+          type: string
+          title: Request Id
+          description: Same value as the `X-Request-ID` response header
+        details:
+          anyOf:
+          - items:
+              additionalProperties: true
+              type: object
+            type: array
+          - type: 'null'
+          title: Details
+          description: Field errors, only present for `validation_error`
       type: object
-      title: HTTPValidationError
+      required:
+      - code
+      - message
+      - request_id
+      title: ErrorBody
+    ErrorResponse:
+      properties:
+        error:
+          $ref: '#/components/schemas/ErrorBody'
+      type: object
+      required:
+      - error
+      title: ErrorResponse
+      description: Every non-2xx response has this shape.
     JobStatus:
       type: string
       enum:
@@ -649,6 +1223,96 @@ components:
       - email
       - password
       title: LoginRequest
+      examples:
+      - email: an.nguyen@example.com
+        password: S3cure-pass
+    Page_CollectionOut_:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/CollectionOut'
+          type: array
+          title: Items
+        total:
+          type: integer
+          title: Total
+          description: Number of items matching the query, ignoring limit/offset
+        limit:
+          type: integer
+          title: Limit
+        offset:
+          type: integer
+          title: Offset
+      type: object
+      required:
+      - items
+      - total
+      - limit
+      - offset
+      title: Page[CollectionOut]
+      examples:
+      - items: []
+        limit: 20
+        offset: 0
+        total: 0
+    Page_DocumentOut_:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/DocumentOut'
+          type: array
+          title: Items
+        total:
+          type: integer
+          title: Total
+          description: Number of items matching the query, ignoring limit/offset
+        limit:
+          type: integer
+          title: Limit
+        offset:
+          type: integer
+          title: Offset
+      type: object
+      required:
+      - items
+      - total
+      - limit
+      - offset
+      title: Page[DocumentOut]
+      examples:
+      - items: []
+        limit: 20
+        offset: 0
+        total: 0
+    Page_ResearchOut_:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/ResearchOut'
+          type: array
+          title: Items
+        total:
+          type: integer
+          title: Total
+          description: Number of items matching the query, ignoring limit/offset
+        limit:
+          type: integer
+          title: Limit
+        offset:
+          type: integer
+          title: Offset
+      type: object
+      required:
+      - items
+      - total
+      - limit
+      - offset
+      title: Page[ResearchOut]
+      examples:
+      - items: []
+        limit: 20
+        offset: 0
+        total: 0
     RegisterRequest:
       properties:
         email:
@@ -665,6 +1329,9 @@ components:
       - email
       - password
       title: RegisterRequest
+      examples:
+      - email: an.nguyen@example.com
+        password: S3cure-pass
     ResearchAccepted:
       properties:
         job_id:
@@ -678,6 +1345,9 @@ components:
       required:
       - job_id
       title: ResearchAccepted
+      examples:
+      - job_id: a4b5c6d7-e8f9-4a0b-9c1d-2e3f4a5b6c7d
+        status: queued
     ResearchCreate:
       properties:
         question:
@@ -699,6 +1369,10 @@ components:
       - question
       - collection_id
       title: ResearchCreate
+      examples:
+      - collection_id: 5d1e7f20-3b4a-4c8d-8e9f-0a1b2c3d4e5f
+        question: NIST SP 800-53 yêu cầu gì về quản lý tài khoản người dùng?
+        web_search: false
     ResearchOut:
       properties:
         job_id:
@@ -748,6 +1422,27 @@ components:
       - created_at
       - updated_at
       title: ResearchOut
+      examples:
+      - citations:
+        - chunk_id: c9e0f1a2-b3c4-4d5e-8f6a-7b8c9d0e1f2a
+          document_id: 77c1a9e4-2f6b-4d3c-9b8a-1e2f3a4b5c6d
+          filename: NIST.SP.800-53r5.pdf
+          marker: '[1]'
+          page: 18
+          section: AC-2 Account Management
+        created_at: '2026-11-20T09:15:00Z'
+        job_id: a4b5c6d7-e8f9-4a0b-9c1d-2e3f4a5b6c7d
+        question: NIST SP 800-53 yêu cầu gì về quản lý tài khoản người dùng?
+        report_markdown: Tổ chức phải xác định các loại tài khoản được phép [1]...
+        status: succeeded
+        steps:
+        - duration_ms: 812.4
+          name: plan
+          status: done
+        - duration_ms: 95.1
+          name: retrieve
+          status: done
+        updated_at: '2026-11-20T09:15:00Z'
     StepOut:
       properties:
         name:
@@ -784,6 +1479,10 @@ components:
       - access_token
       - expires_in
       title: TokenResponse
+      examples:
+      - access_token: eyJhbGciOiJIUzI1NiJ9...
+        expires_in: 3600
+        token_type: bearer
     UserOut:
       properties:
         id:
@@ -799,32 +1498,9 @@ components:
       - id
       - email
       title: UserOut
-    ValidationError:
-      properties:
-        loc:
-          items:
-            anyOf:
-            - type: string
-            - type: integer
-          type: array
-          title: Location
-        msg:
-          type: string
-          title: Message
-        type:
-          type: string
-          title: Error Type
-        input:
-          title: Input
-        ctx:
-          type: object
-          title: Context
-      type: object
-      required:
-      - loc
-      - msg
-      - type
-      title: ValidationError
+      examples:
+      - email: an.nguyen@example.com
+        id: 0b6c2a52-8f3e-4c1d-9a7b-2e5f6d8c9a10
   securitySchemes:
     HTTPBearer:
       type: http

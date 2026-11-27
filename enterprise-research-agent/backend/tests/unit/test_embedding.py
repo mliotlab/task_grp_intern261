@@ -31,11 +31,13 @@ class FakeAPIError(Exception):
         self.code = code
 
 
-def configure_embedding(monkeypatch, *, dimension=3, api_key="test-key"):
+def configure_embedding(monkeypatch, *, dimension=3, api_key="test-key", provider="gemini"):
     settings = SimpleNamespace(
         gemini_api_key=SecretStr(api_key) if api_key is not None else None,
         embedding_model="test-embedding-model",
         embedding_dim=dimension,
+        embedding_provider=provider,
+        embedding_max_texts_per_minute=80,
     )
     monkeypatch.setattr(embedding_module, "get_settings", lambda: settings)
     monkeypatch.setattr(embedding_module, "_reserve_embedding_quota", lambda count: None)
@@ -167,3 +169,39 @@ def test_embed_chunks_does_not_retry_non_429_api_error(monkeypatch):
         embedding_module.embed_chunks(["hello"])
 
     assert calls == 1
+
+
+class FakeLocalModel:
+    def __init__(self):
+        self.inputs = []
+
+    def encode(self, data, **kwargs):
+        self.inputs.append(data)
+        n = len(data) if isinstance(data, list) else None
+        out = [[1.0, 0.0]] * n if n is not None else [1.0, 0.0]
+        return SimpleNamespace(tolist=lambda: out)
+
+
+def test_local_provider_adds_passage_prefix(monkeypatch):
+    configure_embedding(monkeypatch, provider="local")
+    model = FakeLocalModel()
+    monkeypatch.setattr(embedding_module, "_local_model", lambda: model)
+
+    assert embedding_module.embed_chunks(["a", "b"]) == [[1.0, 0.0], [1.0, 0.0]]
+    assert model.inputs == [["passage: a", "passage: b"]]
+
+
+def test_local_provider_adds_query_prefix(monkeypatch):
+    configure_embedding(monkeypatch, provider="local")
+    model = FakeLocalModel()
+    monkeypatch.setattr(embedding_module, "_local_model", lambda: model)
+
+    assert embedding_module.embed_query("hello") == [1.0, 0.0]
+    assert model.inputs == ["query: hello"]
+
+
+def test_embed_query_uses_gemini_by_default(monkeypatch):
+    configure_embedding(monkeypatch, dimension=3)
+    install_fake_client(monkeypatch, FakeEmbeddingModels(dimension=3))
+
+    assert len(embedding_module.embed_query("hello")) == 3
