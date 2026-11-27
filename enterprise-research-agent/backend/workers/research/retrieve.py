@@ -19,7 +19,7 @@ from app.models.document import (
     Document,
     DocumentStatus,
 )
-from workers.embedding import embed_chunks
+from workers.embedding import embed_query
 
 logger = logging.getLogger(__name__)
 
@@ -127,7 +127,7 @@ def retrieve_top_k(
             raise PermissionError("Collection does not exist or does not belong to this owner.")
 
     # 3. Embed the query using the same embedding model
-    query_vectors = embed_chunks([question.strip()])
+    query_vectors = embed_query([question.strip()])
 
     if len(query_vectors) != 1:
         raise RuntimeError("Expected exactly one query embedding.")
