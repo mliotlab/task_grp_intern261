@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import uuid
+
 from fastapi.testclient import TestClient
+
+from app.core.security import create_access_token
 
 LIST_PATHS = ("/v1/collections", "/v1/collections/{collection_id}/documents", "/v1/research")
 
@@ -37,9 +41,9 @@ def test_unknown_route_uses_error_format(client: TestClient) -> None:
 
 
 def test_not_implemented_uses_error_format(client: TestClient) -> None:
-    resp = client.post(
-        "/v1/auth/register", json={"email": "an@example.com", "password": "S3cure-pass"}
-    )
+    # Collections are still a stub (Sprint 2); a valid token gets past auth without a database.
+    token = create_access_token(str(uuid.uuid4()))
+    resp = client.get("/v1/collections", headers={"Authorization": f"Bearer {token}"})
     _assert_error(resp, 501, "not_implemented")
 
 
