@@ -1,0 +1,7 @@
+eval/datasets/v0/corpus
+backend/storage/
+backend/ingest.log
+backend/ingest_timing_*.csv
+eval/results/
+eval/reports/retrieval_*.json
+.env
