@@ -109,7 +109,7 @@ def test_retrieve_top_k_rejects_unowned_collection_before_embedding(retrieval_mo
     def mock_embedding(_texts):
         pytest.fail("Embedding must not run for an unowned collection")
 
-    monkeypatch.setattr(retrieval_module, "embed_chunks", mock_embedding)
+    monkeypatch.setattr(retrieval_module, "embed_query", mock_embedding)
 
     with pytest.raises(PermissionError, match="does not belong to this owner"):
         retrieval_module.retrieve_top_k(
@@ -124,7 +124,7 @@ def test_retrieve_top_k_rejects_query_embedding_dimension_mismatch(retrieval_mod
     install_session_factory(monkeypatch, retrieval_module, [collection_session])
     monkeypatch.setattr(
         retrieval_module,
-        "embed_chunks",
+        "embed_query",
         lambda texts: [[0.0] * (retrieval_module.EMBEDDING_DIM - 1)],
     )
 
@@ -151,7 +151,7 @@ def test_retrieve_top_k_returns_ranked_chunks_and_metadata(retrieval_module, mon
     )
     monkeypatch.setattr(
         retrieval_module,
-        "embed_chunks",
+        "embed_query",
         lambda texts: [[0.0] * retrieval_module.EMBEDDING_DIM],
     )
 
