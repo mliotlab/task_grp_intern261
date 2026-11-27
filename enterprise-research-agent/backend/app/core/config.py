@@ -6,7 +6,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import SecretStr
+from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -50,6 +50,18 @@ class Settings(BaseSettings):
 
     # Jobs (NFR-04)
     job_max_retries: int = 2
+
+    chunk_strategy: Literal["baseline", "advanced"] = "advanced"
+    chunk_size: int = 1000
+    chunk_overlap: int = 150
+
+    @model_validator(mode="after")
+    def _check_chunk_params(self) -> Settings:
+        if self.chunk_size <= 0:
+            raise ValueError("CHUNK_SIZE must be > 0")
+        if not 0 <= self.chunk_overlap < self.chunk_size:
+            raise ValueError("CHUNK_OVERLAP must be >= 0 and < CHUNK_SIZE")
+        return self
 
 
 @lru_cache
