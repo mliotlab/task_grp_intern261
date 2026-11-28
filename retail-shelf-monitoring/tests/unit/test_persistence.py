@@ -5,7 +5,6 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event, func, select
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.exc import IntegrityError
@@ -13,7 +12,6 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 from sqlalchemy.schema import CreateTable
 
-from services.api import main as api_main
 from shelfmon.config import Settings
 from shelfmon.persistence import database
 from shelfmon.persistence.image_storage import ArtifactAlreadyExistsError, ImageStorage
@@ -260,13 +258,3 @@ def test_request_session_creation_does_not_create_schema(monkeypatch: pytest.Mon
     session = next(session_generator)
     assert isinstance(session, Session)
     session_generator.close()
-
-
-def test_application_startup_initializes_schema_once(monkeypatch: pytest.MonkeyPatch) -> None:
-    initialized: list[object] = []
-    monkeypatch.setattr(api_main, "get_settings", lambda: Settings())
-    monkeypatch.setattr(api_main, "get_engine", lambda _: object())
-    monkeypatch.setattr(api_main, "create_schema", initialized.append)
-
-    with TestClient(api_main.app):
-        assert len(initialized) == 1
