@@ -48,7 +48,7 @@ class PersistenceRepository:
                 alert = AlertRecord(
                     alert_id=uuid.uuid4().hex,
                     analysis_id=result.analysis_id,
-                    reason="no_detection" if result.product_count == 0 else "low_fill",
+                    reason="no_detection" if not result.rows else "low_fill",
                     status="unresolved",
                     created_at=datetime.now(UTC),
                 )

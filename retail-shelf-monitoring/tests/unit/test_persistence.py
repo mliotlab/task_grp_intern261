@@ -19,7 +19,7 @@ from shelfmon.persistence import database
 from shelfmon.persistence.image_storage import ArtifactAlreadyExistsError, ImageStorage
 from shelfmon.persistence.models import AlertRecord, AnalysisRecord, Base
 from shelfmon.persistence.repository import PersistenceRepository
-from shelfmon.schemas import AnalysisResult, BoundingBox
+from shelfmon.schemas import AnalysisResult, BoundingBox, ShelfRow
 
 
 @pytest.fixture
@@ -35,8 +35,16 @@ def session() -> Session:
     engine.dispose()
 
 
-def make_result(analysis_id: str, *, alert: bool = False, product_count: int = 1) -> AnalysisResult:
+def make_result(
+    analysis_id: str,
+    *,
+    alert: bool = False,
+    product_count: int = 1,
+    rows: list[ShelfRow] | None = None,
+) -> AnalysisResult:
     boxes = [BoundingBox(x1=0, y1=0, x2=10, y2=20, confidence=0.9)] if product_count else []
+    if rows is None:
+        rows = [ShelfRow(index=0, y1=0, y2=20, boxes=boxes, fill_rate=0.5)] if boxes else []
     return AnalysisResult(
         analysis_id=analysis_id,
         store_id="S001",
@@ -44,7 +52,7 @@ def make_result(analysis_id: str, *, alert: bool = False, product_count: int = 1
         model_version="test-model",
         product_count=product_count,
         boxes=boxes,
-        rows=[],
+        rows=rows,
         gaps=[],
         fill_rate=0.5 if alert else 1.0,
         alert=alert,
@@ -92,6 +100,24 @@ def test_save_analysis_creates_one_unresolved_alert(
     assert alert.reason == expected_reason
     assert alert.created_at.tzinfo == UTC
     assert session.scalar(select(func.count()).select_from(AlertRecord)) == 1
+
+
+def test_save_analysis_with_empty_row_creates_low_fill_alert(session: Session) -> None:
+    repository = PersistenceRepository(session)
+    empty_row = ShelfRow(index=0, y1=0, y2=20, boxes=[], fill_rate=0.0)
+    result = make_result(
+        "analysis-empty-row",
+        alert=True,
+        product_count=0,
+        rows=[empty_row],
+    )
+
+    alert = persist(repository, result)
+
+    assert alert is not None
+    assert alert.reason == "low_fill"
+    assert alert.status == "unresolved"
+    assert alert.resolved_at is None
 
 
 def test_list_and_resolve_alert_removes_it_from_unresolved_filter(session: Session) -> None:
