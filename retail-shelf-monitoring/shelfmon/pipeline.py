@@ -7,15 +7,13 @@ from datetime import UTC, datetime
 
 import numpy as np
 
-from shelfmon.alert import should_alert
 from shelfmon.config import Settings
 from shelfmon.inference.detector import Detector
 from shelfmon.postprocess import (
-    filter_by_confidence,
-    find_gaps,
-    group_into_rows,
-    image_fill_rate,
-    row_fill_rate,
+    PostprocessConfig,
+    StoreROI,
+    rescale_boxes,
+    run_postprocess,
 )
 from shelfmon.schemas import AnalysisResult
 from shelfmon.timing import StepTimer
@@ -35,33 +33,51 @@ def resize_max_side(image: np.ndarray, max_side: int) -> tuple[np.ndarray, float
 
 
 def analyze_image(
-    image: np.ndarray, store_id: str, detector: Detector, settings: Settings
+    image: np.ndarray,
+    store_id: str,
+    detector: Detector,
+    settings: Settings,
+    *,
+    roi: StoreROI | None = None,
+    postprocess_config: PostprocessConfig | None = None,
 ) -> AnalysisResult:
+    """Run full single-image shelf analysis returning boxes in original-image pixel coordinates."""
+    orig_h, orig_w = image.shape[:2]
     timer = StepTimer()
+
     with timer.step("preprocess"):
-        image, _ = resize_max_side(image, settings.max_image_side)
+        resized, _ = resize_max_side(image, settings.max_image_side)
+        resized_h, resized_w = resized.shape[:2]
+
     with timer.step("inference"):
-        boxes = detector.detect(image, conf=settings.conf_threshold)
+        raw_boxes = detector.detect(resized, conf=settings.conf_threshold)
+
     with timer.step("postprocess"):
-        boxes = filter_by_confidence(boxes, settings.conf_threshold)
-        rows = group_into_rows(boxes)
-        # TODO(FR-10): use a configured ROI instead of the full image width.
-        shelf_x1, shelf_x2 = 0.0, float(image.shape[1])
-        for row in rows:
-            row.gaps = find_gaps(row, shelf_x1, shelf_x2, settings.gap_width_multiplier)
-            row.fill_rate = row_fill_rate(row, shelf_x1, shelf_x2)
-        fill = image_fill_rate(rows)
+        boxes = rescale_boxes(
+            raw_boxes,
+            from_size=(resized_w, resized_h),
+            to_size=(orig_w, orig_h),
+            clamp=True,
+        )
+        cfg = postprocess_config or PostprocessConfig.from_settings(settings)
+        output = run_postprocess(
+            boxes,
+            image_width=float(orig_w),
+            image_height=float(orig_h),
+            config=cfg,
+            roi=roi,
+        )
 
     return AnalysisResult(
         analysis_id=uuid.uuid4().hex,
         store_id=store_id,
         created_at=datetime.now(UTC),
         model_version=detector.version,
-        product_count=len(boxes),
-        boxes=boxes,
-        rows=rows,
-        gaps=[g for r in rows for g in r.gaps],
-        fill_rate=fill,
-        alert=should_alert(fill, settings.fill_rate_alert_threshold),
+        product_count=len(output.boxes),
+        boxes=output.boxes,
+        rows=output.rows,
+        gaps=output.gaps,
+        fill_rate=output.fill_rate,
+        alert=output.alert,
         timings_ms=timer.timings_ms,
     )

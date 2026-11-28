@@ -32,6 +32,10 @@ class BoundingBox(BaseModel):
         return self.y2 - self.y1
 
     @property
+    def area(self) -> float:
+        return self.width * self.height
+
+    @property
     def center(self) -> tuple[float, float]:
         return ((self.x1 + self.x2) / 2, (self.y1 + self.y2) / 2)
 
@@ -45,9 +49,19 @@ class Gap(BaseModel):
     x2: float
     y2: float
 
+    @model_validator(mode="after")
+    def _check_order(self) -> Gap:
+        if self.x2 <= self.x1 or self.y2 <= self.y1:
+            raise ValueError("expected x2 > x1 and y2 > y1")
+        return self
+
     @property
     def width(self) -> float:
         return self.x2 - self.x1
+
+    @property
+    def height(self) -> float:
+        return self.y2 - self.y1
 
 
 class ShelfRow(BaseModel):
@@ -55,7 +69,7 @@ class ShelfRow(BaseModel):
     y1: float
     y2: float
     boxes: list[BoundingBox]
-    gaps: list[Gap] = []
+    gaps: list[Gap] = Field(default_factory=list)
     fill_rate: float = Field(1.0, ge=0, le=1)
 
 
@@ -72,4 +86,4 @@ class AnalysisResult(BaseModel):
     gaps: list[Gap]
     fill_rate: float = Field(ge=0, le=1)
     alert: bool
-    timings_ms: dict[str, float] = {}
+    timings_ms: dict[str, float] = Field(default_factory=dict)
