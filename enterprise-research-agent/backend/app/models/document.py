@@ -2,12 +2,17 @@ from __future__ import annotations
 
 import enum
 import uuid
+from typing import TYPE_CHECKING
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import Enum, ForeignKey, Integer, String, Text, UniqueConstraint
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.models.base import Base, IdMixin, TimestampMixin
+from app.models.base import Base, IdMixin, TimestampMixin, enum_column
+
+if TYPE_CHECKING:
+    from app.models.collection import Collection
+    from app.models.user import User
 
 EMBEDDING_DIM = 384  # must match settings.embedding_dim and the embedding model (ADR)
 
@@ -36,9 +41,15 @@ class Document(IdMixin, TimestampMixin, Base):
     sha256: Mapped[str] = mapped_column(String(64))
     storage_path: Mapped[str] = mapped_column(String(500))
     status: Mapped[DocumentStatus] = mapped_column(
-        Enum(DocumentStatus, name="document_status"), default=DocumentStatus.QUEUED
+        enum_column(DocumentStatus, "document_status"), default=DocumentStatus.QUEUED
     )
     error: Mapped[str | None] = mapped_column(Text)
+
+    owner: Mapped[User] = relationship(back_populates="documents")
+    collection: Mapped[Collection] = relationship(back_populates="documents")
+    chunks: Mapped[list[Chunk]] = relationship(
+        back_populates="document", cascade="all, delete-orphan", passive_deletes=True
+    )
 
 
 class Chunk(IdMixin, Base):
@@ -52,3 +63,5 @@ class Chunk(IdMixin, Base):
     page: Mapped[int | None] = mapped_column(Integer)  # citation location (FR-05)
     section: Mapped[str | None] = mapped_column(String(500))
     embedding: Mapped[list[float]] = mapped_column(Vector(EMBEDDING_DIM))
+
+    document: Mapped[Document] = relationship(back_populates="chunks")

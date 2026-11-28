@@ -119,3 +119,92 @@ def seeded_gemini_retrieval_data():
             db.execute(delete(Collection).where(Collection.id == data["collection_id"]))
             db.execute(delete(User).where(User.id == data["owner_id"]))
             db.commit()
+
+
+# --- S2-01: throwaway PostgreSQL database with the Alembic schema -----------------------------
+
+
+def _alembic_config(connection):  # type: ignore[no-untyped-def]
+    from pathlib import Path
+
+    from alembic.config import Config
+
+    cfg = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
+    cfg.attributes["connection"] = connection
+    cfg.attributes["configure_logger"] = False
+    return cfg
+
+
+@pytest.fixture
+def make_database():
+    """Factory: create an empty database next to DATABASE_URL, drop it after the test.
+
+    Never touches the database in DATABASE_URL itself, so a dev database is safe.
+    """
+    from sqlalchemy import create_engine, text
+
+    settings = get_settings()
+    if settings.app_env != "test":
+        raise RuntimeError("Integration DB fixtures only run with APP_ENV=test.")
+    admin = create_engine(settings.database_url, isolation_level="AUTOCOMMIT")
+    created: list[str] = []
+
+    def _make():  # type: ignore[no-untyped-def]
+        name = f"era_s201_{uuid.uuid4().hex[:12]}"
+        with admin.connect() as conn:
+            conn.execute(text(f'CREATE DATABASE "{name}"'))
+        created.append(name)
+        return create_engine(make_url(settings.database_url).set(database=name))
+
+    try:
+        yield _make
+    finally:
+        with admin.connect() as conn:
+            for name in created:
+                conn.execute(text(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)'))
+        admin.dispose()
+
+
+@pytest.fixture
+def run_alembic():
+    """run_alembic(engine, "upgrade", "head") / run_alembic(engine, "downgrade", "base")."""
+    from alembic import command
+
+    def _run(engine, action: str, revision: str) -> None:  # type: ignore[no-untyped-def]
+        with engine.begin() as connection:
+            getattr(command, action)(_alembic_config(connection), revision)
+
+    return _run
+
+
+@pytest.fixture
+def migrated_engine(make_database, run_alembic):  # type: ignore[no-untyped-def]
+    """A fresh database at Alembic head."""
+    engine = make_database()
+    run_alembic(engine, "upgrade", "head")
+    try:
+        yield engine
+    finally:
+        engine.dispose()
+
+
+@pytest.fixture
+def db_client(migrated_engine):  # type: ignore[no-untyped-def]
+    """TestClient whose API sessions use the migrated throwaway database."""
+    from fastapi.testclient import TestClient
+    from sqlalchemy.orm import sessionmaker
+
+    from app.db.session import get_db
+    from app.main import app
+
+    factory = sessionmaker(bind=migrated_engine, expire_on_commit=False)
+
+    def _get_db():  # type: ignore[no-untyped-def]
+        with factory() as db:
+            yield db
+
+    app.dependency_overrides[get_db] = _get_db
+    try:
+        yield TestClient(app)
+    finally:
+        app.dependency_overrides.pop(get_db, None)

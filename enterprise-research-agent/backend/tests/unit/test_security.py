@@ -55,3 +55,29 @@ def test_protected_endpoints_require_token(client: TestClient, method: str, path
 def test_invalid_token_rejected(client: TestClient) -> None:
     resp = client.get("/v1/collections", headers={"Authorization": "Bearer not-a-jwt"})
     assert resp.status_code == 401
+
+
+def test_long_password_beyond_bcrypt_72_bytes() -> None:
+    """S2-01: up to 128 characters (multi-byte UTF-8) must hash and verify without error."""
+    password = "mậtkhẩu" * 18 + "ẩẩ"
+    assert len(password.encode("utf-8")) > 72
+    hashed = hash_password(password)
+    assert verify_password(password, hashed)
+    assert not verify_password(password[:-1], hashed)
+
+
+def test_verify_password_with_malformed_hash_is_false() -> None:
+    assert verify_password("anything", "not-a-bcrypt-hash") is False
+
+
+def test_token_without_expiry_rejected() -> None:
+    import jwt as pyjwt
+
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    token = pyjwt.encode(
+        {"sub": "u"}, settings.jwt_secret.get_secret_value(), algorithm=settings.jwt_algorithm
+    )
+    with pytest.raises(InvalidTokenError):
+        decode_access_token(token)

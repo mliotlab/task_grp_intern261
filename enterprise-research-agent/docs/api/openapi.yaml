@@ -25,7 +25,8 @@ paths:
       tags:
       - auth
       summary: Register
-      description: 'TODO(FR-01): reject duplicate emails (409), store `hash_password(body.password)`.'
+      description: Create an account. The password is stored only as a bcrypt hash
+        (NFR-05).
       operationId: register_v1_auth_register_post
       requestBody:
         content:
@@ -73,10 +74,11 @@ paths:
       tags:
       - auth
       summary: Login
-      description: 'TODO(FR-01): verify_password → create_access_token(str(user.id)).
+      description: 'Return a JWT that expires after `JWT_EXPIRE_MINUTES`.
 
 
-        Return the same 401 for "unknown email" and "wrong password".'
+        Unknown email and wrong password give the same 401 (registered emails are
+        not revealed).'
       operationId: login_v1_auth_login_post
       requestBody:
         content:
