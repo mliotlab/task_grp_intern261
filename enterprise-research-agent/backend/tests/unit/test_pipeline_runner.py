@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from uuid import uuid4
+
 from workers.research.pipeline import ResearchState, run_pipeline
 
 
@@ -14,7 +16,11 @@ def _step(tag: str):
 def test_runner_reports_progress_in_order() -> None:
     events: list[tuple[str, str]] = []
     state = run_pipeline(
-        ResearchState(question="q", collection_id="c"),
+        ResearchState(
+            question="q",
+            collection_id="c",
+            owner_id=uuid4(),
+        ),
         on_progress=lambda step, status, _ms: events.append((step, status)),
         steps=[("a", _step("a")), ("b", _step("b"))],
     )
@@ -25,7 +31,11 @@ def test_runner_reports_progress_in_order() -> None:
 def test_runner_stops_when_cancelled() -> None:
     events: list[tuple[str, str]] = []
     run_pipeline(
-        ResearchState(question="q", collection_id="c"),
+        ResearchState(
+            question="q",
+            collection_id="c",
+            owner_id=uuid4(),
+        ),
         on_progress=lambda step, status, _ms: events.append((step, status)),
         steps=[("a", _step("a"))],
         is_cancelled=lambda: True,

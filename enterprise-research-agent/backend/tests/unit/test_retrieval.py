@@ -109,7 +109,7 @@ def test_retrieve_top_k_rejects_unowned_collection_before_embedding(retrieval_mo
     def mock_embedding(_texts):
         pytest.fail("Embedding must not run for an unowned collection")
 
-    monkeypatch.setattr(retrieval_module, "embed_chunks", mock_embedding)
+    monkeypatch.setattr(retrieval_module, "embed_query", mock_embedding)
 
     with pytest.raises(PermissionError, match="does not belong to this owner"):
         retrieval_module.retrieve_top_k(
@@ -124,8 +124,8 @@ def test_retrieve_top_k_rejects_query_embedding_dimension_mismatch(retrieval_mod
     install_session_factory(monkeypatch, retrieval_module, [collection_session])
     monkeypatch.setattr(
         retrieval_module,
-        "embed_chunks",
-        lambda texts: [[0.0] * (retrieval_module.EMBEDDING_DIM - 1)],
+        "embed_query",
+        lambda text: [0.0] * (retrieval_module.EMBEDDING_DIM - 1),
     )
 
     with pytest.raises(RuntimeError, match=r"Expected .* dimensions"):
@@ -149,19 +149,26 @@ def test_retrieve_top_k_returns_ranked_chunks_and_metadata(retrieval_module, mon
         retrieval_module,
         [collection_session, retrieval_session],
     )
+    query = "What does the paper conclude?"
+    received = {}
+
+    def mock_embedding(text):
+        received["text"] = text
+        return [0.0] * retrieval_module.EMBEDDING_DIM
+
     monkeypatch.setattr(
         retrieval_module,
-        "embed_chunks",
-        lambda texts: [[0.0] * retrieval_module.EMBEDDING_DIM],
+        "embed_query",
+        mock_embedding,
     )
 
     results = retrieval_module.retrieve_top_k(
-        question="What does the paper conclude?",
+        question=query,
         collection_id=collection_id,
         owner_id=owner_id,
         top_k=2,
     )
-
+    assert received["text"] == query
     assert len(results) == 2
     assert results[0]["rank"] == 1
     assert results[0]["filename"] == "paper.pdf"
