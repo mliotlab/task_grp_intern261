@@ -22,9 +22,11 @@ class Evidence:
     sub_question: str
     chunk_id: str
     document_id: str
+    filename: str
     text: str
     page: int | None = None
-    score: float = 0.0
+    section: str | None = None
+    rrf_score: float = 0.0
 
 
 @dataclass
@@ -89,9 +91,11 @@ def retrieve(state: ResearchState) -> ResearchState:
                     sub_question=sub_question,
                     chunk_id=result["chunk_id"],
                     document_id=result["document_id"],
+                    filename=result["filename"],
                     text=result["text"],
                     page=result["page"],
-                    score=float(result["rrf_score"]),
+                    section=result.get("section"),
+                    rrf_score=float(result["rrf_score"]),
                 )
             )
 

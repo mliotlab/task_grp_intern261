@@ -121,6 +121,21 @@ def test_resolve_retrieval_params_supports_overrides(monkeypatch):
     ) == (10, 50, 30)
 
 
+def test_resolve_retrieval_params_rejects_candidate_k_below_top_k(
+    monkeypatch,
+):
+    mock_settings(monkeypatch, top_k=5, candidate_k=20)
+
+    with pytest.raises(
+        ValueError,
+        match="candidate_k must be >= top_k",
+    ):
+        retrieval._resolve_retrieval_params(
+            top_k=5,
+            candidate_k=3,
+        )
+
+
 @pytest.mark.parametrize(
     ("kwargs", "invalid_value"),
     [

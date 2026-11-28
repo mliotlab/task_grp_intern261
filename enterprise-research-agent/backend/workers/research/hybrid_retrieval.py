@@ -66,6 +66,11 @@ def _resolve_retrieval_params(
         if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
             raise ValueError(f"{name} must be a positive integer.")
 
+    resolved_top_k, resolved_candidate_k, _ = resolved
+
+    if resolved_candidate_k < resolved_top_k:
+        raise ValueError("candidate_k must be >= top_k.")
+
     return resolved
 
 
@@ -93,7 +98,15 @@ def _load_authorized_chunks(
             raise PermissionError("Collection does not exist or does not belong to this owner.")
 
         stmt = (
-            select(Chunk, Document)
+            select(
+                Chunk.id.label("chunk_id"),
+                Document.id.label("document_id"),
+                Document.filename.label("filename"),
+                Chunk.ordinal.label("ordinal"),
+                Chunk.text.label("text"),
+                Chunk.page.label("page"),
+                Chunk.section.label("section"),
+            )
             .join(
                 Document,
                 Chunk.document_id == Document.id,
@@ -115,15 +128,15 @@ def _load_authorized_chunks(
 
         return [
             {
-                "chunk_id": str(chunk.id),
-                "document_id": str(document.id),
-                "filename": document.filename,
-                "ordinal": chunk.ordinal,
-                "text": chunk.text,
-                "page": chunk.page,
-                "section": chunk.section,
+                "chunk_id": str(row.chunk_id),
+                "document_id": str(row.document_id),
+                "filename": row.filename,
+                "ordinal": row.ordinal,
+                "text": row.text,
+                "page": row.page,
+                "section": row.section,
             }
-            for chunk, document in rows
+            for row in rows
         ]
 
 
